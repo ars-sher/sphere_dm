@@ -12,9 +12,11 @@ import csv
 import os
 import json
 from geopy.geocoders import GeoNames
+from iso3166 import countries
 import time
 import pickle
 import io
+import random
 
 def log(msg):
     with open("log.txt", 'a') as lf:
@@ -49,10 +51,10 @@ def get_users():
 
 # insert keys here
 def get_twitter_api():
-    CONSUMER_KEY = ""
-    CONSUMER_SECRET = ""
-    ACCESS_TOKEN_KEY = ""
-    ACCESS_TOKEN_SECRET = ""
+    CONSUMER_KEY = "SiwaBFBz0zRQZd1PAed87hu7P"
+    CONSUMER_SECRET = "46cfhnKYdFEWvBRPI91giPmUHLbJXt3hdJINDVbPxtTHExfMFL"
+    ACCESS_TOKEN_KEY = "1106605230-GWfc9XsXM53RaCqPjGClJzZeknjbD38g8rXwjRL"
+    ACCESS_TOKEN_SECRET = "9B9QVWvoUiNYRXkQZf3xXdjBvsH9AtL6sruY0XXqPN2u0"
 
     return twitter.Api(consumer_key=CONSUMER_KEY,
                        consumer_secret=CONSUMER_SECRET,
@@ -71,7 +73,7 @@ def get_twitter_api():
 # pl.show()
 
 
-# note that you need to install geopy package
+# note that you need to install geopy and iso3166 packages
 class GeoFinder(object):
     PICKLED_GEO = "geomappings.pkl"
     PICKLED_GEO_BLACKLIST = "geomappings_blacklist.pkl"
@@ -87,6 +89,8 @@ class GeoFinder(object):
         if os.path.isfile(self.PICKLED_GEO_BLACKLIST):
             with open(self.PICKLED_GEO_BLACKLIST, 'rb') as f:
                 self.geomappings_blacklist = pickle.load(f)
+        log_info("known geomappings size: %s " % len(self.geomappings))
+        log_info("known geo blacklist size: %s " % len(self.geomappings_blacklist))
 
     def __del__(self):
         with open(self.PICKLED_GEO, 'wb') as f:
@@ -98,11 +102,13 @@ class GeoFinder(object):
         if location_string in self.geomappings:
             return self.geomappings[location_string]
         elif location_string in self.geomappings_blacklist:
-            return (0, 0, "")
+            return (0, 0, "", 0)
         else:
             location = self.geolocator.geocode(location_string, exactly_one=True, timeout=60)
-            if location:
-                res = (location.latitude, location.longitude, location.address.partition(",")[0])
+            if location and u'countryCode' in location.raw:
+                cc_alphabet = location.raw[u'countryCode'].encode('utf_8')
+                cc_numeric = int(countries.get(cc_alphabet).numeric)
+                res = (location.latitude, location.longitude, location.raw[u'countryName'].encode('utf_8'), cc_numeric)
                 self.geomappings[location_string] = res
                 if len(self.geomappings) % 200 == 0:
                     log_info("Geomappings size now %s" % len(self.geomappings))
@@ -110,7 +116,7 @@ class GeoFinder(object):
             else:
                 self.geomappings_blacklist.append(location_string)
                 log_warn("Failed to get location for string %s" % location_string.encode('utf_8'))
-                return (0, 0, "")
+                return (0, 0, "", 0)
 
 geofinder = GeoFinder()
 def get_coordinates_by_location(location_string):
@@ -145,7 +151,10 @@ def twitter_user_to_dataframe_record(user):
 
     if user.location is not None and user.location.strip() != "":
         record["location"] = user.location
-        record["lat"], record["lon"], record["country"] = get_coordinates_by_location(user.location)
+        # I have added country_code here
+        location_tuple = get_coordinates_by_location(user.location)
+        if location_tuple[2] != "":
+            record["lat"], record["lon"], record["country"], record["country_code"] = get_coordinates_by_location(user.location)
 
     return record
 
@@ -176,7 +185,7 @@ def get_user_records(df, f=f, processed_users=processed_users, user_records=user
         log_info("%s ids handled, %s left" % (i + batch.size, unprocessed_ids.size - i - batch.size))
         i += 100
         batch = unprocessed_ids[i:i+100]
-        time.sleep(30) # to avoid ban from twitter
+        time.sleep(30)  # to avoid ban from twitter
     return map(lambda u: twitter_user_to_dataframe_record(u), res)
 
     # your code here
@@ -207,7 +216,7 @@ def collect_data():
         user_records = get_user_records(get_users(), f, processed_users, user_records)
 
     print "Creating data frame from loaded data"
-    df_records = pd.DataFrame(user_records, columns=["uid", "name", "screen_name", "description", "verified", "location", "lat", "lon", "country", "created_at", "followers_count", "friends_count", "statuses_count", "favourites_count", "listed_count"])
+    df_records = pd.DataFrame(user_records, columns=["uid", "name", "screen_name", "description", "verified", "location", "lat", "lon", "country", "country_code", "created_at", "followers_count", "friends_count", "statuses_count", "favourites_count", "listed_count"])
     print "Merging data frame with the training set"
     df_full = pd.merge(get_users(), df_records, on="uid", how="left")
     print "Finished building data frame"
@@ -258,13 +267,13 @@ def draw_by_registration_year(df_full):
     pl.show()
 
 
-def draw_by_map(df_full):
+def draw_on_map(df_full):
     pl.figure(figsize=(20,12))
 
     m = bm.Basemap(projection='cyl', llcrnrlat=-90, urcrnrlat=90, llcrnrlon=-180, urcrnrlon=180, resolution='c')
 
     m.drawcountries(linewidth=0.2)
-    m.fillcontinents(color='lavender', lake_color='#000040')
+    m.fillcontinents(color='lavender', lake_color='#000040', zorder=0)
     m.drawmapboundary(linewidth=0.2, fill_color='#000040')
     m.drawparallels(np.arange(-90,90,30),labels=[0,0,0,0], color='white', linewidth=0.5)
     m.drawmeridians(np.arange(0,360,30),labels=[0,0,0,0], color='white', linewidth=0.5)
@@ -273,14 +282,23 @@ def draw_by_map(df_full):
         """
         Plot points on the map. Be creative.
         """
-        df_positive = df_full[(pd.notnull(df_full.location)) & (df_full.cat == 1)]
-        positive_lats, positive_lons = df_positive['lat'].values.tolist(), df_positive['lon'].values.tolist()
-        df_negative = df_full[(pd.notnull(df_full.location)) & (df_full.cat == 0)]
-        negative_lats, negative_lons = df_negative['lat'].values.tolist(), df_negative['lon'].values.tolist()
+        df_positive = df_full[(pd.notnull(df_full.lat)) & (df_full.cat == 1)]
+        df_positive_grouped = df_positive.groupby(['lat', 'lon']).size()
+        positive_lats, positive_lons = df_positive_grouped.reset_index()['lat'].values.tolist(), df_positive_grouped.reset_index()['lon'].values.tolist()
+        # skew dots a little bit to make map more readable
+        positive_lats, positive_lons = map(lambda x: x + random.uniform(-0.2, 0.2), positive_lats), map(lambda x: x + random.uniform(-0.4, 0.4), positive_lons)
+        positive_freq = map(lambda x: x*1, df_positive_grouped.values.tolist())
+
+        df_negative = df_full[(pd.notnull(df_full.lon)) & (df_full.cat == 0)]
+        df_negative_grouped = df_negative.groupby(['lat', 'lon']).size()
+        negative_lats, negative_lons = df_negative_grouped.reset_index()['lat'].values.tolist(), df_negative_grouped.reset_index()['lon'].values.tolist()
+        negative_lats, negative_lons = map(lambda x: x + random.uniform(-0.2, 0.2), negative_lats), map(lambda x: x + random.uniform(-0.4, 0.4), negative_lons)
+        negative_freq = map(lambda x: x*1, df_negative_grouped.values.tolist())
+
         px, py = m(positive_lons, positive_lats)
         nx, ny = m(negative_lons, negative_lats)
-        m.scatter(px, py, marker='*', color='r')
-        m.scatter(nx, ny, marker='*', color='g')
+        m.scatter(px, py, s=positive_freq, marker='o', color='r')
+        m.scatter(nx, ny, s=negative_freq, marker='o', color='g')
         return
 
     plot_points_on_map(df_full, m)
@@ -292,5 +310,5 @@ def draw_by_map(df_full):
 if __name__ == "__main__":
     df_full = collect_data()
     draw_by_registration_year(df_full)
-    draw_by_map(df_full)
+    draw_on_map(df_full)
 

@@ -417,10 +417,10 @@ def investigate_features(df_users):
 
     find_correlated_features(x, features)
 
-    # geo_features_new = ["lat", "lon", "country_code"]
-    # geo_features = [f for f in geo_features_new if f in features]
-    # geo_feature_ind = [i for i, f in enumerate(features) if f in geo_features]
-    # plot_dataset(x[:, geo_feature_ind], y, geo_features)
+    geo_features_new = ["lat", "lon", "country_code"]
+    geo_features = [f for f in geo_features_new if f in features]
+    geo_feature_ind = [i for i, f in enumerate(features) if f in geo_features]
+    plot_dataset(x[:, geo_feature_ind], y, geo_features)
 
     social_features_new = ["followers_count", "friends_count", "statuses_count", "favourites_count", "listed_count", "created_year", "verified"]
     social_features = [f for f in social_features_new if f in features]
@@ -432,7 +432,6 @@ def investigate_features(df_users):
 
     transformed_features = ["followers_count", "friends_count", "statuses_count", "favourites_count", "listed_count"]
     x = log_transform_features(x, features, transformed_features)
-    print x[:, 12]
     plot_dataset(x[:, social_feature_ind], y, social_features)
 
     selected_features = ["followers_count", "friends_count", "statuses_count", "favourites_count",

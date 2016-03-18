@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
-
+import datetime
 import pandas as pd
 import numpy as np
 import pylab as pl
 import mpl_toolkits.basemap as bm
 import twitter
-import requests
-import datetime
 import dateutil
 import csv
 import os
@@ -15,8 +13,10 @@ from geopy.geocoders import GeoNames
 from iso3166 import countries
 import time
 import pickle
-import io
 import random
+import math
+import sklearn.preprocessing as sp
+
 
 def log(msg):
     with open("log.txt", 'a') as lf:
@@ -24,13 +24,16 @@ def log(msg):
         print str
         print >>lf, str
 
+
 def log_info(msg):
     msg = "INFO:   " + msg
     log(msg)
 
+
 def log_warn(msg):
     msg = "WARN:   " + msg
     log(msg)
+
 
 def get_train_set():
     TRAINING_SET_URL = "twitter_train.txt"
@@ -188,13 +191,12 @@ def get_user_records(df, f=f, processed_users=processed_users, user_records=user
         time.sleep(30)  # to avoid ban from twitter
     return map(lambda u: twitter_user_to_dataframe_record(u), res)
 
-    # your code here
-    # some_downloaded_user = get_user_from_api
-    # also write user as json line in temporary file
-    # return [twitter_user_to_dataframe_record(some_downloaded_user)]
 
-
+# download data and save as csv and pckl
 def collect_data():
+    ts_parser = lambda date_str: datetime.datetime.strptime(date_str, "%Y-%m") if pd.notnull(date_str) and date_str else None
+    if os.path.isfile("hw1_out.csv"):
+        return pd.read_csv("hw1_out.csv", sep="\t", encoding="utf-8", quoting=csv.QUOTE_NONNUMERIC, converters={"created_at": ts_parser})
     if os.path.isfile("df_full.pckl"):
         return pd.read_pickle("df_full.pckl")
 
@@ -239,6 +241,7 @@ def count_users(grouped):
     """
     dts = []
     count_pos, count_neg = np.zeros(len(grouped)), np.zeros(len(grouped))
+    # your code here
     positive_series = grouped.apply(lambda g: g[g['cat'] == 1]).groupby('created_at').size()
     negative_series = grouped.apply(lambda g: g[g['cat'] == 0]).groupby('created_at').size()
     united_index = positive_series.index.append(negative_series.index)
@@ -307,8 +310,149 @@ def draw_on_map(df_full):
     pl.legend()
     pl.show()
 
+
+def read_data():
+    df_users = collect_data()
+    # Remove rows with users not found
+    df_users = df_users[pd.notnull(df_users['name'])]
+    df_users["lat"].fillna(value=0, inplace=True)
+    df_users["lon"].fillna(value=0, inplace=True)
+    return df_users
+
+
+def create_new_features(df_users, features):
+    # Introduce new features
+    new_features = ["name_words", "screen_name_length", "description_length", "created_year", "country_code", "verified"]
+
+    df_users = df_users[pd.notnull(df_users['name'])]
+    df_users = df_users[pd.notnull(df_users['screen_name'])]
+    df_users = df_users[pd.notnull(df_users['description'])]
+    df_users = df_users[pd.notnull(df_users['created_at'])]
+    df_users = df_users[pd.notnull(df_users['lat'])]
+    df_users = df_users[pd.notnull(df_users['lon'])]
+    df_users = df_users[pd.notnull(df_users['country_code'])]
+    df_users = df_users[pd.notnull(df_users['statuses_count'])]
+    df_users = df_users[pd.notnull(df_users['favourites_count'])]
+    df_users = df_users[pd.notnull(df_users['listed_count'])]
+
+    df_users["name_words"] = df_users["name"].apply(lambda name: len(name.split()))
+    df_users["screen_name_length"] = df_users["screen_name"].apply(lambda screen_name: len(screen_name))
+    df_users["description_length"] = df_users["description"].apply(lambda x: len(x) if pd.notnull(x) else 0)
+    df_users["created_year"] = df_users["created_at"].apply(lambda created_at: created_at.year)
+    df_users["verified"] = df_users["verified"].apply(lambda x: int(x) if pd.notnull(x) else 0)
+
+    # Calculate new features and place them into data frame
+    # place tour code here
+
+    features += new_features
+    return df_users, features
+
+
+def find_correlated_features(x, features):
+    # replace this code to find really correlated features
+    for i, feature_i in enumerate(features):
+        for j, feature_j in enumerate(features):
+            if i < j:
+                coef = np.corrcoef(x[:, i], x[:, j])[0, 1]
+                if abs(coef) > 0.2:
+                    print "Correlated features: %s + %s -> %.2f" % (feature_i, feature_j, coef)
+
+
+def plot_two_features_scatter(feature_i, x_i, feature_j, x_j, y):
+    i_positive = x_i[(y != 0)]
+    i_negative = x_i[(y == 0)]
+    j_positive = x_j[(y != 0)]
+    j_negative = x_j[(y == 0)]
+
+    pl.gca().axes.yaxis.set_ticklabels([])
+    pl.gca().axes.xaxis.set_ticklabels([])
+
+    pl.scatter(j_positive, i_positive, s=2, color='r')
+    pl.scatter(j_negative, i_negative, s=2, color='g')
+    pl.xlabel(feature_j)
+    pl.ylabel(feature_i)
+
+
+def plot_feature_histogram(feature_name, x_i, y):
+    positive_x = x_i[(y != 0)]
+    negative_x = x_i[(y == 0)]
+
+    # print feature_name, positive_x
+    pl.gca().axes.yaxis.set_ticklabels([])
+    pl.gca().axes.xaxis.set_ticklabels([])
+    pl.hist([positive_x, negative_x], bins=20, color=['r', 'g'],  alpha=0.5, label=['positive', 'negative'])
+    pl.xlabel(feature_name)
+
+
+def plot_dataset(x, y, features):
+    pl.subplots_adjust(hspace=0.4, wspace=0.4)
+    for i, feature_i in enumerate(features):
+        for j, feature_j in enumerate(features):
+            pl.subplot(len(features), len(features), i * len(features) + j + 1)
+            if i != j:
+                plot_two_features_scatter(feature_i, x[:, i], feature_j, x[:, j], y)
+            else:
+                plot_feature_histogram(feature_i, x[:, i], y)
+
+    pl.show()
+
+
+def log_transform_features(data, features, transformed_features):
+    def transform_row(row):
+        # return map(lambda x: math.log(x[0] + 1) if (x[1] in transform_indexes) else x[0], enumerate(row))
+        vfunc = np.vectorize(lambda x, i: math.log(x + 1) if (i in transform_indexes) else x)
+        res = vfunc(row, range(len(row)))
+        return res
+
+    transform_indexes = [i for i, f in enumerate(features) if f in transformed_features]
+    return np.apply_along_axis(transform_row, axis=1, arr=data)
+
+
+def investigate_features(df_users):
+    features = ["lat", "lon", "followers_count", "friends_count", "statuses_count", "favourites_count", "listed_count"]
+    df_users, features = create_new_features(df_users, features)
+
+    x = df_users[pd.notnull(df_users.cat)][features].values
+    y = df_users[pd.notnull(df_users.cat)]["cat"].values
+
+    find_correlated_features(x, features)
+
+    # geo_features_new = ["lat", "lon", "country_code"]
+    # geo_features = [f for f in geo_features_new if f in features]
+    # geo_feature_ind = [i for i, f in enumerate(features) if f in geo_features]
+    # plot_dataset(x[:, geo_feature_ind], y, geo_features)
+
+    social_features_new = ["followers_count", "friends_count", "statuses_count", "favourites_count", "listed_count", "created_year", "verified"]
+    social_features = [f for f in social_features_new if f in features]
+    social_feature_ind = [i for i, f in enumerate(features) if f in social_features]
+    print "Features: " + str(features)
+    print "Social features: " + str(social_features)
+    print "Social features ind: " + str(social_feature_ind)
+    plot_dataset(x[:, social_feature_ind], y, social_features)
+
+    transformed_features = ["followers_count", "friends_count", "statuses_count", "favourites_count", "listed_count"]
+    x = log_transform_features(x, features, transformed_features)
+    print x[:, 12]
+    plot_dataset(x[:, social_feature_ind], y, social_features)
+
+    selected_features = ["followers_count", "friends_count", "statuses_count", "favourites_count",
+                         "listed_count", "name_words", "screen_name_length", "description_length", "created_year"]
+
+    x_1 = df_users[selected_features].values
+    y = df_users["cat"].values
+
+    # x_1 = x[:, selected_features_ind]
+    # Replace nan with 0-s
+    # Is there a smarter way?
+    # x_1[np.isnan(x_1)] = 0  # well, isn't boolean indexing smart enough? we can also do x_1 = np.nun_to_num(x_1)
+    x_min = x_1.min(axis=0)
+    x_max = x_1.max(axis=0)
+    x_new = (x_1 - x_min) / (x_max - x_min)
+
+    df_out = pd.DataFrame(data=x_new, index=df_users["uid"], columns=[f for f in selected_features])
+    df_out.to_csv("hw2_out.csv", sep="\t")
+
 if __name__ == "__main__":
-    df_full = collect_data()
-    draw_by_registration_year(df_full)
-    draw_on_map(df_full)
+    df_users = read_data()
+    investigate_features(df_users)
 

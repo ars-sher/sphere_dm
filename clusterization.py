@@ -208,13 +208,13 @@ class OPTICS:
         # holds ordered by OPTICS points with their core-distance and reachability-distance
         self.__ordered_file = np.empty(0, dtype=ordered_file_dt)
         # holds calculated labels
-        self.__labels = []
+        self.__labels = np.empty(0, dtype=np.int32)
 
     # accepts features matrix. We do not validate shape of x
     def fit(self, x):
         optics_computer = OPTICSComputer(self.eps, self.min_pts, self.metric, x)
         self.__ordered_file = optics_computer.compute()
-        self.__labels = optics_computer.labels # it is empty still
+        self.__labels = optics_computer.labels # it is empty still, but thus we allocate needed size
         self.n = optics_computer.n
         return self
 
@@ -229,12 +229,68 @@ class OPTICS:
         self.fit(x)
         return self.predict(xi, dbscan, dbscan_eps)
 
+    def is_steep_downward_point(self, i, xi):
+        assert i < self.n
+        res = self.__ordered_file[i]['reach_dist'] * (1 - xi) >= self.__ordered_file[i + 1]['reach_dist']
+        # if res:
+        #     print "%s is downward point with xi %s " % (i, xi)
+        return res
+
+    def is_steep_upward_point(self, i, xi):
+        assert i < self.n
+        res = self.__ordered_file[i]['reach_dist'] <= self.__ordered_file[i + 1]['reach_dist'] * (1 - xi)
+        # if res:
+        #     print "%s is upward point with xi %s" % (i, xi)
+        return res
+
     def __extract(self, xi):
         # the last point cannot be steep, so we will handle it separately
-        for i in xrange(self.n - 1):
-            # if self.
-            # i += 1
-            pass
+        clusterid = -1
+        print xi
+        # steep down areas
+        sdas = set()
+        self.__labels.fill(-1)
+        i = 0
+        while i < self.n - 1:
+            # start of downward region. On exit, i will point to first not-downward-steep point
+            # TODO: consider the last point left
+            if self.is_steep_downward_point(i, xi):
+                # print "%s is downward point, starting searching the area" % i
+                startsteep = i
+                endsteep = i + 1  # not including; downward region is [startsteep, endsteep)
+                i += 1
+                while i < self.n - 1:
+                    if not self.is_steep_downward_point(i, 0):  # oh wait, we are going upward
+                        break
+                    if self.is_steep_downward_point(i, xi): # downward point again, keep going
+                        endsteep = i + 1
+                    else:  # break, if min_pts consecutive xhi-equal point goes
+                        if i - endsteep > self.min_pts:
+                            break
+                    i += 1
+                i = endsteep
+                sdas.add((startsteep, endsteep))
+                print "found downward region [%s, %s)" % (startsteep, endsteep)
+                continue
+            # start of upward region. On exit, i will point to first not-upward-steep point
+            if self.is_steep_upward_point(i, xi):
+                startsteep = i
+                endsteep = i + 1  # not including; upward region is [startsteep, endsteep]
+                i += 1
+                while i < self.n - 1:
+                    if not self.is_steep_upward_point(i, 0):  # oh wait, we are going downward
+                        break
+                    if self.is_steep_upward_point(i, xi):  # upward point again, keep going
+                        endsteep = i + 1
+                    else:  # break, if min_pts consecutive xhi-equal point goes
+                        if i - endsteep > self.min_pts:
+                            break
+                    i += 1
+                i = endsteep
+                print "found upward region [%s, %s)" % (startsteep, endsteep)
+
+                continue
+            i += 1
 
     def __extract_dbscan(self, eps):
         assert eps <= self.eps
@@ -304,7 +360,7 @@ if __name__ == "__main__":
     y_iris = iris.target[:100]  # clusters
 
     # pred_optics = OPTICS(eps=10, min_pts=4).fit_predict(data, dbscan=True, dbscan_eps=0.75)
-    pred_optics = OPTICS(eps=10, min_pts=4).fit_predict(data, xi=0.1)
+    pred_optics = OPTICS(eps=10, min_pts=10).fit_predict(data, xi=0.15)
     pl.subplot(2, 2, 1)
     pl.scatter(data[:, 0], data[:, 1], c=y_iris, cmap=pl.cm.RdBu, lw=0, s=30)
     pl.xlabel('Sepal length, reference clusters')

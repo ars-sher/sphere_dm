@@ -243,13 +243,55 @@ class OPTICS:
         #     print "%s is upward point with xi %s" % (i, xi)
         return res
 
+    def is_cluster(self, sda, sua, xi):
+        reach_start_index = sda[0]
+        reach_start = self.__get_rd(reach_start_index)
+        # points to one element righter the end of upward region, intentionally
+        reach_end_index = sua[1]
+        reach_end = self.__get_rd(reach_end_index)
+        print "checking potential cluster %s - %s" % (sda, sua)
+        # check 4 and find left&right
+        left_i, left, = reach_start_index, reach_start
+        # cluster borded can't be outside upward area, so -1
+        right_i, right = reach_end_index - 1, self.__get_rd(reach_end_index - 1)
+        if left <= right:
+            while left < right * (1 - xi):
+                right_i -= 1
+                right = self.__get_rd(right_i)
+                if right_i < left_i:
+                    print "potential cluster check failed, no left&right rd intersection; right was higher"
+                    return False, None, None  # I wonder whether this is possible
+        else:
+            while right < left * (1 - xi):
+                left_i += 1
+                left = self.__get_rd(left_i)
+                if left_i > right_i:
+                    print "potential cluster check failed, no left&right rd intersection; left was higher"
+                    return False, None, None  # I wonder whether this is possible
+        right_i += 1  # restore extra element for slicing
+        # check 3a
+        if right_i - left_i < self.min_pts:
+            print "potential cluster check failed, number of elements is less that min_pts"
+            return False, None, None
+        # check 3b
+        inside_cluster_max = np.amax(self.__ordered_file[left_i + 1: right_i - 1]['reach_dist'])
+        # if inside_cluster_max > min(reach_start, reach_end) * (1 - xi):
+        if inside_cluster_max > min(reach_start, reach_end) * (1 - xi):
+            print "potential cluster check %s - %s failed, condition 3b" % (sda, sua)
+            print "max is %s, reach_start is %s, reach_end is %s" % (inside_cluster_max, reach_start, reach_end)
+            return False, None, None
+        return True, left_i, right_i
+
+    def __get_rd(self, i):
+        return self.__ordered_file[i]['reach_dist']
+
     def __extract(self, xi):
         # the last point cannot be steep, so we will handle it separately
-        clusterid = -1
         print xi
         # steep down areas
         sdas = set()
-        self.__labels.fill(-1)
+        # set of tuples of cluster borders
+        clusters = set()
         i = 0
         while i < self.n - 1:
             # start of downward region. On exit, i will point to first not-downward-steep point
@@ -288,9 +330,27 @@ class OPTICS:
                     i += 1
                 i = endsteep
                 print "found upward region [%s, %s)" % (startsteep, endsteep)
-
+                cluster_found = False
+                for sda in sdas:
+                    is_cluster, left, right = self.is_cluster(sda, (startsteep, endsteep), xi)
+                    if is_cluster:
+                        clusters.add((left, right))
+                        print "found cluster [%s, %s)" % (left, right)
+                        cluster_found = True
+                        break
+                if cluster_found:
+                    sdas.clear()
                 continue
             i += 1
+        print "Again, selected clusters:"
+        for cluster in clusters:
+            print cluster
+        clusterid = -1
+        self.__labels.fill(-1)
+        for cluster in clusters:
+            clusterid += 1
+            indexes = self.__ordered_file['index'][cluster[0]:cluster[1]]
+            self.__labels[indexes] = clusterid
 
     def __extract_dbscan(self, eps):
         assert eps <= self.eps

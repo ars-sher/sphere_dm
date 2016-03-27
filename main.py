@@ -364,11 +364,11 @@ def plot_two_features_scatter(feature_i, x_i, feature_j, x_j, y):
     j_positive = x_j[(y != 0)]
     j_negative = x_j[(y == 0)]
 
-    pl.gca().axes.yaxis.set_ticklabels([])
-    pl.gca().axes.xaxis.set_ticklabels([])
+    # pl.gca().axes.yaxis.set_ticklabels([])
+    # pl.gca().axes.xaxis.set_ticklabels([])
 
-    pl.scatter(j_positive, i_positive, s=2, color='r')
-    pl.scatter(j_negative, i_negative, s=2, color='g')
+    pl.scatter(j_positive, i_positive, s=0.1, color='r', alpha=0.3)
+    pl.scatter(j_negative, i_negative, s=0.5, color='g', alpha=0.3)
     pl.xlabel(feature_j)
     pl.ylabel(feature_i)
 
@@ -378,9 +378,9 @@ def plot_feature_histogram(feature_name, x_i, y):
     negative_x = x_i[(y == 0)]
 
     # print feature_name, positive_x
-    pl.gca().axes.yaxis.set_ticklabels([])
-    pl.gca().axes.xaxis.set_ticklabels([])
-    pl.hist([positive_x, negative_x], bins=20, color=['r', 'g'],  alpha=0.5, label=['positive', 'negative'])
+    # pl.gca().axes.yaxis.set_ticklabels([])
+    # pl.gca().axes.xaxis.set_ticklabels([])
+    pl.hist([positive_x, negative_x], bins=20, color=['r', 'g'],  alpha=0.3, label=['positive', 'negative'])
     pl.xlabel(feature_name)
 
 
@@ -443,13 +443,17 @@ def investigate_features(df_users):
     # x_1 = x[:, selected_features_ind]
     # Replace nan with 0-s
     # Is there a smarter way?
-    # x_1[np.isnan(x_1)] = 0  # well, isn't boolean indexing smart enough? we can also do x_1 = np.nun_to_num(x_1)
-    x_min = x_1.min(axis=0)
-    x_max = x_1.max(axis=0)
-    x_new = (x_1 - x_min) / (x_max - x_min)
+    x_1[np.isnan(x_1)] = 0  # well, isn't boolean indexing smart enough? we can also do x_1 = np.nun_to_num(x_1)
 
+    # custom normalization
+    # x_min = x_1.min(axis=0)
+    # x_max = x_1.max(axis=0)
+    # x_new = (x_1 - x_min) / (x_max - x_min)
+
+    # sklearn normalization
+    x_new = sp.normalize(x_1)
     df_out = pd.DataFrame(data=x_new, index=df_users["uid"], columns=[f for f in selected_features])
-    df_out.to_csv("hw2_out.csv", sep="\t")
+    df_out.to_csv("hw2_out_sknorm.csv", sep="\t")
 
 if __name__ == "__main__":
     df_users = read_data()

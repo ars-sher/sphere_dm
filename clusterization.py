@@ -14,10 +14,14 @@ import sklearn.datasets as ds
 import sklearn.metrics as smt
 from sklearn.neighbors import NearestNeighbors
 import scipy.spatial.distance as dist
+import matplotlib.path as path
+import matplotlib.patches as patches
+import matplotlib
 
 from heapq import heapify, heappush, heappop
 
 
+# taken from http://code.activestate.com/recipes/522995/
 class PriorityDict(dict):
     """Dictionary that can be used as a priority queue.
 
@@ -132,16 +136,11 @@ class OPTICSComputer:
         self.distances = []
 
     def compute(self):
-        print "Starting computing neighbors..."
         nn = NearestNeighbors(radius=self.eps, algorithm='auto', metric=self.metric).fit(self.x)
         self.distances, self.indices = nn.radius_neighbors(self.x, self.eps)
-        print "Neighbors calculated, shapes:"
         print self.distances.shape, self.indices.shape
-        # print "indices:", self.indices
-        # print "distances:", self.distances
         for i in xrange(self.n):
             if not self.processed[i]:
-                # print "Expanding point %s..." % i
                 self.expand_cluster_order(i)
         assert self.ordered_file_index == self.n
         # print self.ordered_file
@@ -237,14 +236,14 @@ class OPTICS:
 
     def is_steep_downward_point(self, i, xi):
         assert i < self.n
-        res = self.__ordered_file[i]['reach_dist'] * (1 - xi) >= self.__ordered_file[i + 1]['reach_dist']
+        res = self.__get_rd(i) * (1 - xi) >= self.__get_rd(i + 1)
         # if res:
         #     print "%s is downward point with xi %s " % (i, xi)
         return res
 
     def is_steep_upward_point(self, i, xi):
         assert i < self.n
-        res = self.__ordered_file[i]['reach_dist'] <= self.__ordered_file[i + 1]['reach_dist'] * (1 - xi)
+        res = self.__get_rd(i) <= self.__get_rd(i + 1) * (1 - xi)
         # if res:
         #     print "%s is upward point with xi %s" % (i, xi)
         return res
@@ -258,25 +257,28 @@ class OPTICS:
         print "checking potential cluster %s - %s" % (sda, sua)
         # check 4 and find left&right
         left_i, left, = reach_start_index, reach_start
-        # cluster borded can't be outside upward area, so -1
+        # cluster border can't be outside upward area, so -1
         right_i, right = reach_end_index - 1, self.__get_rd(reach_end_index - 1)
-        # TODO it's wrong
-        print "left is %s, right is %s" % (left, right)
-        if left <= right:
-            while left < right * (1 - xi):
+        higher, lower = (left, right) if left >= right else (right, left)
+        while higher * (1 - xi) > lower:
+            # print "Trying to balance left and right: left is %s, right is %s, left_i is %s, right_i is %s" % (left, right, left_i, right_i)
+            if left < right:
                 right_i -= 1
                 right = self.__get_rd(right_i)
-                if right_i < left_i:
+                if right_i < sua[0]:
                     print "potential cluster check failed, no left&right rd intersection; right was higher"
                     return False, None, None  # I wonder whether this is possible
-        else:
-            while right < left * (1 - xi):
+                # print "moving along upward, now left is %s, right is %s" % (left, right)
+            else:
                 left_i += 1
                 left = self.__get_rd(left_i)
-                print "moving, now left is %s, right is %s" % (left, right)
-                if left_i > right_i:
+                if left_i > sda[1]:
                     print "potential cluster check failed, no left&right rd intersection; left was higher"
                     return False, None, None  # I wonder whether this is possible
+                # print "moving along downward, now left is %s, right is %s" % (left, right)
+            higher, lower = (left, right) if left >= right else (right, left)
+
+        print "left is %s, right is %s" % (left, right)
         right_i += 1  # restore extra element for slicing
         # check 3a
         if right_i - left_i < self.min_pts:
@@ -284,7 +286,6 @@ class OPTICS:
             return False, None, None
         # check 3b
         inside_cluster_max = np.amax(self.__ordered_file[left_i + 1: right_i - 1]['reach_dist'])
-        # if inside_cluster_max > min(reach_start, reach_end) * (1 - xi):
         if inside_cluster_max > min(reach_start, reach_end) * (1 - xi):
             print "potential cluster check %s - %s failed, condition 3b" % (sda, sua)
             print "max is %s, reach_start is %s, reach_end is %s" % (inside_cluster_max, reach_start, reach_end)
@@ -361,6 +362,9 @@ class OPTICS:
             clusterid += 1
             indexes = self.__ordered_file['index'][cluster[0]:cluster[1]]
             self.__labels[indexes] = clusterid
+        # hack: assign last point ot the same cluster as penultimate
+        self.__labels[self.__ordered_file['index'][self.n - 1]] = self.__labels[self.__ordered_file['index'][self.n - 2]]
+        print "Unassigned dots: %s" % self.__labels[self.__labels == -1].size
 
     def __extract_dbscan(self, eps):
         assert eps <= self.eps
@@ -384,10 +388,10 @@ class OPTICS:
 def radar(centroid, features, axes, color):
     # Set ticks to the number of features (in radians)
     t = np.arange(0, 2*np.pi, 2*np.pi/len(features))
-    plt.xticks(t, [])
+    pl.xticks(t, [])
 
     # Set yticks from 0 to 1
-    plt.yticks(np.linspace(0, 1, 6))
+    pl.yticks(np.linspace(0, 1, 6))
 
     # Draw polygon representing centroid
     points = [(x, y) for x, y in zip(t, centroid)]
@@ -401,10 +405,10 @@ def radar(centroid, features, axes, color):
     axes.add_patch(_patch)
 
     # Draw circles at value points
-    plt.scatter(points[:,0], points[:,1], linewidth=2, s=50, color='white', edgecolor='black', zorder=10)
+    pl.scatter(points[:,0], points[:,1], linewidth=2, s=50, color='white', edgecolor='black', zorder=10)
 
     # Set axes limits
-    plt.ylim(0, 1)
+    pl.ylim(0, 1)
 
     # Draw ytick labels to make sure they fit properly
     for i in range(len(features)):
@@ -412,112 +416,101 @@ def radar(centroid, features, axes, color):
         angle_deg = i/float(len(features))*360
         ha = "right"
         if angle_rad < np.pi/2 or angle_rad > 3*np.pi/2: ha = "left"
-        plt.text(angle_rad, 1.05, features[i], size=7, horizontalalignment=ha, verticalalignment="center")
-
-if __name__ == "__main__":
-    np.random.seed(42)
-
-    # # and this is for microdebug
-    # data = np.array([[1, 1],
-    #                  [3, 1],
-    #                  [5, 1],
-    #                  [6, 1],
-    #                  [6, 2],
-    #                  [6, 0],
-    #                  [7, 1],
-    #                  [7, 6],
-    #                  [10, 10],
-    #                  [10, 12],
-    #                  [12, 10]])
-    #
-    # pred_optics = OPTICS(eps=2, min_pts=3).fit_predict(data)
-    # pred_dbsan = DBSCAN(eps=2, min_samples=3).fit_predict(data)
-    # pl.scatter(data[:, 0], data[:, 1], c=pred_dbsan)
-    # pl.show()
+        pl.text(angle_rad, 1.05, features[i], size=7, horizontalalignment=ha, verticalalignment="center")
 
 
-    # and this is for debug now
-    # iris = ds.load_iris()
-    # data = iris.data[:, 2:4]  # data
-    #
-    # # pred_kmeans = KMeans(n_clusters=2).fit_predict(data)
-    # pred_dbscan = DBSCAN(eps=0.5, min_samples=4).fit_predict(data)
-    # pred_optics = OPTICS(eps=10, min_pts=4).fit_predict(data)
-    # print "Adjusted Rand index for iris is: %.2f" % smt.adjusted_rand_score(pred_optics, pred_dbscan)
-    #
-    # pl.subplot(1, 3, 1)
-    # pl.scatter(data[:, 0], data[:, 1], lw=0, s=30)
-    # pl.xlabel('Sepal length')
-    # pl.ylabel('Sepal width')
-    # #
-    # pl.subplot(1, 3, 2)
-    # pl.scatter(data[:, 0], data[:, 1], c=pred_dbscan, cmap=pl.cm.RdBu, lw=0, s=30)
-    # pl.xlabel('Sepal length')
-    # pl.ylabel('Sepal width')
-    # #
-    # pl.subplot(1, 3, 3)
-    # pl.scatter(data[:, 0], data[:, 1], c=pred_optics, cmap=pl.cm.RdBu, lw=0, s=30)
-    # pl.xlabel('Sepal length')
-    # pl.ylabel('Sepal width')
-    # pl.show()
+def draw_radar(data_df, x, y):
+    # Choose some nice colors
+    matplotlib.rc('axes', facecolor='white')
+    # Make figure background the same colors as axes
+    fig = pl.figure(figsize=(15, 15), facecolor='white')
 
-    # this stuff is for check later: we have here 4-d features, but draw two 2d plots. Not good.
-    # iris = ds.load_iris()
-    # data = iris.data[:100] # data
-    # y_iris = iris.target[:100]  # clusters
-    #
-    # # pred_optics = OPTICS(eps=10, min_pts=4).fit_predict(data, dbscan=True, dbscan_eps=0.75)
-    # pred_optics = OPTICS(eps=10, min_pts=5).fit_predict(data, xi=0.3)
-    # print pred_optics
-    # pl.subplot(2, 2, 1)
-    # pl.scatter(data[:, 0], data[:, 1], c=y_iris, cmap=pl.cm.RdBu, lw=0, s=30)
-    # pl.xlabel('Sepal length, reference clusters')
-    # pl.ylabel('Sepal width')
-    #
-    # pl.subplot(2, 2, 2)
-    # pl.scatter(data[:, 2], data[:, 3], c=y_iris, cmap=pl.cm.RdBu, lw=0, s=30)
-    # pl.xlabel('Petal length, reference clusters')
-    # pl.ylabel('Petal width')
-    #
-    # pl.subplot(2, 2, 3)
-    # pl.scatter(data[:, 0], data[:, 1], c=pred_optics, cmap=pl.cm.RdBu, lw=0, s=30)
-    # pl.xlabel('Sepal length, optics clusters')
-    # pl.ylabel('Sepal width')
-    #
-    # pl.subplot(2, 2, 4)
-    # pl.scatter(data[:, 2], data[:, 3], c=pred_optics, cmap=pl.cm.RdBu, lw=0, s=30)
-    # pl.xlabel('Petal length, optics clusters')
-    # pl.ylabel('Petal width')
-    # pl.show()
-    # print "Adjusted Rand index for iris is: %.2f" % smt.adjusted_rand_score(y_iris, pred_optics)
+    cm = pl.get_cmap('jet')
+
+    clusters = np.unique(y)
+    k = clusters.size
+    for j, cluster in enumerate(clusters):
+        x_c = x[y == cluster]
+        centroid = x_c.mean(axis=0)
+        # Use a polar axes
+        axes = pl.subplot(3, 3, j + 1, polar=True)
+        radar(centroid, data_df.columns.values, axes, cm(1.0 * j / k))
+        # radar(centroid, data_df.columns.values, axes, cm(j))
+
+    pl.show()
 
 
-    data_df = pd.read_csv("hw2_out_sknorm.csv", sep="\t", header=0, index_col="uid")
-    x = data_df.values[:1000]
-
-    print x.shape
-
-    # optics
-    # cls = OPTICS(eps=0.1, min_pts=20)
-    # y = cls.fit_predict(x, xi=0.15)
-    # exit(0)
-
-    # my dbscan
-    # eps = 1
-    # cls = OPTICS(eps=eps, min_pts=10)
-    # y = cls.fit_predict(x, dbscan=True, dbscan_eps=eps)
-
-    # their dbscan
-    cls = DBSCAN(eps=0.13, min_samples=15)
-    y = cls.fit_predict(x)
-
+def draw_clusters(x, y):
     tsne = sm.TSNE(n_components=2, verbose=1, n_iter=1000)
     z = tsne.fit_transform(x)
 
-    # Color map
     cm = pl.get_cmap('jet')
-    pl.figure(figsize=(15, 15))
-    k = 5
+    fig = pl.figure(figsize=(15, 15))
+    fig.patch.set_facecolor('white')
+    k = np.unique(y).size
     pl.scatter(z[:, 0], z[:, 1], c=map(lambda c: cm(1.0 * c / k), y))
+    # pl.scatter(z[:, 0], z[:, 1], c=y, cmap=cm)
     pl.axis('off')
     pl.show()
+
+
+def check_iris():
+    iris = ds.load_iris()
+    data = iris.data[:100] # data
+    y_iris = iris.target[:100]  # clusters
+
+    # pred_optics = OPTICS(eps=10, min_pts=4).fit_predict(data, dbscan=True, dbscan_eps=0.75)
+    pred_optics = OPTICS(eps=0.6, min_pts=5).fit_predict(data, xi=0.3)
+    pl.subplot(2, 2, 1)
+    pl.scatter(data[:, 0], data[:, 1], c=y_iris, cmap=pl.cm.RdBu, lw=0, s=30)
+    pl.xlabel('Sepal length, reference clusters')
+    pl.ylabel('Sepal width')
+
+    pl.subplot(2, 2, 2)
+    pl.scatter(data[:, 2], data[:, 3], c=y_iris, cmap=pl.cm.RdBu, lw=0, s=30)
+    pl.xlabel('Petal length, reference clusters')
+    pl.ylabel('Petal width')
+
+    pl.subplot(2, 2, 3)
+    pl.scatter(data[:, 0], data[:, 1], c=pred_optics, cmap=pl.cm.RdBu, lw=0, s=30)
+    pl.xlabel('Sepal length, optics clusters')
+    pl.ylabel('Sepal width')
+
+    pl.subplot(2, 2, 4)
+    pl.scatter(data[:, 2], data[:, 3], c=pred_optics, cmap=pl.cm.RdBu, lw=0, s=30)
+    pl.xlabel('Petal length, optics clusters')
+    pl.ylabel('Petal width')
+    pl.show()
+    print "Adjusted Rand index for iris is: %.2f" % smt.adjusted_rand_score(y_iris, pred_optics)
+
+if __name__ == "__main__":
+    data_df = pd.read_csv("hw2_out_sknorm.csv", sep="\t", header=0, index_col="uid")
+    x = data_df.values[:7000]
+    print "data shape: %s" % str(x.shape)
+
+    check_iris()
+
+    # optics
+    cls = OPTICS(eps=0.1, min_pts=20)
+    y = cls.fit_predict(x, xi=0.15)
+    # exit(0)
+
+    # my dbscan
+    # eps = 0.16
+    # cls = OPTICS(eps=eps, min_pts=15)
+    # y = cls.fit_predict(x, dbscan=True, dbscan_eps=eps)
+
+    # sklearn dbscan
+    # cls = DBSCAN(eps=0.16, min_samples=15)
+    # y = cls.fit_predict(x)
+
+    # kmeans
+    # cls = KMeans(n_clusters=8)
+    # y = cls.fit_predict(x)
+
+    # no quality criterias fit OPTICS algorithm, so we will not implement them
+
+    draw_clusters(x, y)
+
+    draw_radar(data_df, x, y)
+

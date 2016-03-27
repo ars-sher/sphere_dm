@@ -132,12 +132,16 @@ class OPTICSComputer:
         self.distances = []
 
     def compute(self):
+        print "Starting computing neighbors..."
         nn = NearestNeighbors(radius=self.eps, algorithm='auto', metric=self.metric).fit(self.x)
         self.distances, self.indices = nn.radius_neighbors(self.x, self.eps)
+        print "Neighbors calculated, shapes:"
+        print self.distances.shape, self.indices.shape
         # print "indices:", self.indices
         # print "distances:", self.distances
         for i in xrange(self.n):
             if not self.processed[i]:
+                # print "Expanding point %s..." % i
                 self.expand_cluster_order(i)
         assert self.ordered_file_index == self.n
         # print self.ordered_file
@@ -155,6 +159,7 @@ class OPTICSComputer:
             self.update_seeds(pq, nbr_indexes, nbr_distances, i, core_dist)
             while pq:
                 next_point = pq.pop_smallest()
+                # print "Point %s picked from queue for processed..." % next_point
                 core_dist, nbr_indexes, nbr_distances = self.get_core_distance_and_neighbors(next_point)
                 self.processed[next_point] = True
                 self.reachability_distances[i] = np.inf # TODO
@@ -191,8 +196,9 @@ class OPTICSComputer:
     def draw_reachability_plot(self):
         rds = np.copy(self.ordered_file['reach_dist'])
         m = np.amax(rds[rds != np.inf])
-        rds[rds == np.inf] = m
+        rds[rds == np.inf] = 2*m
         pl.plot(rds)
+        pl.axhline(y=m, c='r')
         pl.show()
 
 
@@ -254,6 +260,8 @@ class OPTICS:
         left_i, left, = reach_start_index, reach_start
         # cluster borded can't be outside upward area, so -1
         right_i, right = reach_end_index - 1, self.__get_rd(reach_end_index - 1)
+        # TODO it's wrong
+        print "left is %s, right is %s" % (left, right)
         if left <= right:
             while left < right * (1 - xi):
                 right_i -= 1
@@ -265,6 +273,7 @@ class OPTICS:
             while right < left * (1 - xi):
                 left_i += 1
                 left = self.__get_rd(left_i)
+                print "moving, now left is %s, right is %s" % (left, right)
                 if left_i > right_i:
                     print "potential cluster check failed, no left&right rd intersection; left was higher"
                     return False, None, None  # I wonder whether this is possible
@@ -280,6 +289,7 @@ class OPTICS:
             print "potential cluster check %s - %s failed, condition 3b" % (sda, sua)
             print "max is %s, reach_start is %s, reach_end is %s" % (inside_cluster_max, reach_start, reach_end)
             return False, None, None
+
         return True, left_i, right_i
 
     def __get_rd(self, i):
@@ -367,6 +377,43 @@ class OPTICS:
             else:
                 self.__labels[i] = clusterid
 
+    def get_of(self):
+        return self.__ordered_file
+
+
+def radar(centroid, features, axes, color):
+    # Set ticks to the number of features (in radians)
+    t = np.arange(0, 2*np.pi, 2*np.pi/len(features))
+    plt.xticks(t, [])
+
+    # Set yticks from 0 to 1
+    plt.yticks(np.linspace(0, 1, 6))
+
+    # Draw polygon representing centroid
+    points = [(x, y) for x, y in zip(t, centroid)]
+    points.append(points[0])
+    points = np.array(points)
+    codes = [path.Path.MOVETO,] + [path.Path.LINETO,] * (len(centroid) - 1) + [ path.Path.CLOSEPOLY ]
+    _path = path.Path(points, codes)
+    _patch = patches.PathPatch(_path, fill=True, color=color, linewidth=0, alpha=.3)
+    axes.add_patch(_patch)
+    _patch = patches.PathPatch(_path, fill=False, linewidth = 2)
+    axes.add_patch(_patch)
+
+    # Draw circles at value points
+    plt.scatter(points[:,0], points[:,1], linewidth=2, s=50, color='white', edgecolor='black', zorder=10)
+
+    # Set axes limits
+    plt.ylim(0, 1)
+
+    # Draw ytick labels to make sure they fit properly
+    for i in range(len(features)):
+        angle_rad = i/float(len(features))*2*np.pi
+        angle_deg = i/float(len(features))*360
+        ha = "right"
+        if angle_rad < np.pi/2 or angle_rad > 3*np.pi/2: ha = "left"
+        plt.text(angle_rad, 1.05, features[i], size=7, horizontalalignment=ha, verticalalignment="center")
+
 if __name__ == "__main__":
     np.random.seed(42)
 
@@ -415,30 +462,62 @@ if __name__ == "__main__":
     # pl.show()
 
     # this stuff is for check later: we have here 4-d features, but draw two 2d plots. Not good.
-    iris = ds.load_iris()
-    data = iris.data[:100] # data
-    y_iris = iris.target[:100]  # clusters
+    # iris = ds.load_iris()
+    # data = iris.data[:100] # data
+    # y_iris = iris.target[:100]  # clusters
+    #
+    # # pred_optics = OPTICS(eps=10, min_pts=4).fit_predict(data, dbscan=True, dbscan_eps=0.75)
+    # pred_optics = OPTICS(eps=10, min_pts=5).fit_predict(data, xi=0.3)
+    # print pred_optics
+    # pl.subplot(2, 2, 1)
+    # pl.scatter(data[:, 0], data[:, 1], c=y_iris, cmap=pl.cm.RdBu, lw=0, s=30)
+    # pl.xlabel('Sepal length, reference clusters')
+    # pl.ylabel('Sepal width')
+    #
+    # pl.subplot(2, 2, 2)
+    # pl.scatter(data[:, 2], data[:, 3], c=y_iris, cmap=pl.cm.RdBu, lw=0, s=30)
+    # pl.xlabel('Petal length, reference clusters')
+    # pl.ylabel('Petal width')
+    #
+    # pl.subplot(2, 2, 3)
+    # pl.scatter(data[:, 0], data[:, 1], c=pred_optics, cmap=pl.cm.RdBu, lw=0, s=30)
+    # pl.xlabel('Sepal length, optics clusters')
+    # pl.ylabel('Sepal width')
+    #
+    # pl.subplot(2, 2, 4)
+    # pl.scatter(data[:, 2], data[:, 3], c=pred_optics, cmap=pl.cm.RdBu, lw=0, s=30)
+    # pl.xlabel('Petal length, optics clusters')
+    # pl.ylabel('Petal width')
+    # pl.show()
+    # print "Adjusted Rand index for iris is: %.2f" % smt.adjusted_rand_score(y_iris, pred_optics)
 
-    # pred_optics = OPTICS(eps=10, min_pts=4).fit_predict(data, dbscan=True, dbscan_eps=0.75)
-    pred_optics = OPTICS(eps=10, min_pts=10).fit_predict(data, xi=0.15)
-    pl.subplot(2, 2, 1)
-    pl.scatter(data[:, 0], data[:, 1], c=y_iris, cmap=pl.cm.RdBu, lw=0, s=30)
-    pl.xlabel('Sepal length, reference clusters')
-    pl.ylabel('Sepal width')
 
-    pl.subplot(2, 2, 2)
-    pl.scatter(data[:, 2], data[:, 3], c=y_iris, cmap=pl.cm.RdBu, lw=0, s=30)
-    pl.xlabel('Petal length, reference clusters')
-    pl.ylabel('Petal width')
+    data_df = pd.read_csv("hw2_out_sknorm.csv", sep="\t", header=0, index_col="uid")
+    x = data_df.values[:1000]
 
-    pl.subplot(2, 2, 3)
-    pl.scatter(data[:, 0], data[:, 1], c=pred_optics, cmap=pl.cm.RdBu, lw=0, s=30)
-    pl.xlabel('Sepal length, optics clusters')
-    pl.ylabel('Sepal width')
+    print x.shape
 
-    pl.subplot(2, 2, 4)
-    pl.scatter(data[:, 2], data[:, 3], c=pred_optics, cmap=pl.cm.RdBu, lw=0, s=30)
-    pl.xlabel('Petal length, optics clusters')
-    pl.ylabel('Petal width')
+    # optics
+    # cls = OPTICS(eps=0.1, min_pts=20)
+    # y = cls.fit_predict(x, xi=0.15)
+    # exit(0)
+
+    # my dbscan
+    # eps = 1
+    # cls = OPTICS(eps=eps, min_pts=10)
+    # y = cls.fit_predict(x, dbscan=True, dbscan_eps=eps)
+
+    # their dbscan
+    cls = DBSCAN(eps=0.13, min_samples=15)
+    y = cls.fit_predict(x)
+
+    tsne = sm.TSNE(n_components=2, verbose=1, n_iter=1000)
+    z = tsne.fit_transform(x)
+
+    # Color map
+    cm = pl.get_cmap('jet')
+    pl.figure(figsize=(15, 15))
+    k = 5
+    pl.scatter(z[:, 0], z[:, 1], c=map(lambda c: cm(1.0 * c / k), y))
+    pl.axis('off')
     pl.show()
-    print "Adjusted Rand index for iris is: %.2f" % smt.adjusted_rand_score(y_iris, pred_optics)

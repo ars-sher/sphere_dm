@@ -195,8 +195,10 @@ class OPTICSComputer:
     def draw_reachability_plot(self):
         rds = np.copy(self.ordered_file['reach_dist'])
         m = np.amax(rds[rds != np.inf])
+        # draw infinity as double max
         rds[rds == np.inf] = 2*m
         pl.plot(rds)
+        pl.title("reachability plot")
         pl.axhline(y=m, c='r')
         pl.show()
 

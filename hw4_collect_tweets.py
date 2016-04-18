@@ -184,7 +184,7 @@ def draw_tag_cloud(users_tokens):
 
 if __name__ == "__main__":
     df_users = main.get_users()
-    df_users = df_users[:500]
+    # df_users = df_users[:500]
 
     # # TODO just to collect, remove later
     # for uid in df_users["uid"].values[:500]:

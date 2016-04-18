@@ -172,23 +172,27 @@ def get_full_frequencies(users_tokens):
 
 
 def draw_tag_cloud(users_tokens):
-    from wordcloud import WordCloud
+    from PIL import Image
+    import matplotlib.pyplot as plt
+    from wordcloud import WordCloud, ImageColorGenerator
+
+    trump_coloring = np.array(Image.open("trump.png"))
+
     freqs = get_full_frequencies(users_tokens)
     freq_pairs = freqs.items()
-    wordcloud = WordCloud().generate_from_frequencies(freq_pairs)
+    wc = WordCloud(max_words=2000, mask=trump_coloring,
+                   max_font_size=40, random_state=42)
+    wc.generate_from_frequencies(freq_pairs)
 
-    import matplotlib.pyplot as plt
-    plt.imshow(wordcloud)
+    image_colors = ImageColorGenerator(trump_coloring)
+
+    plt.imshow(wc.recolor(color_func=image_colors))
     plt.axis("off")
     plt.show()
 
 if __name__ == "__main__":
     df_users = main.get_users()
-    # df_users = df_users[:500]
-
-    # # TODO just to collect, remove later
-    # for uid in df_users["uid"].values[:500]:
-    #     get_user_tweets(uid)
+    # df_users = df_users[:200]
 
     users, users_tokens = collect_users_tokens(df_users)
     token_set = get_full_token_set(users_tokens)

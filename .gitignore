@@ -2,3 +2,13 @@ tmp
 .idea
 log.txt
 tmp_user_records.txt
+*.pyc
+
+df_full.pckl
+geomappings.pkl
+geomappings_blacklist.pkl
+hw1_out.csv
+hw2_out.csv
+hw2_out_sknorm.csv
+pics/
+

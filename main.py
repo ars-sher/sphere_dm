@@ -17,6 +17,8 @@ import random
 import math
 import sklearn.preprocessing as sp
 
+import twitter_credentials
+
 
 def log(msg):
     with open("log.txt", 'a') as lf:
@@ -52,17 +54,13 @@ def get_users():
     res = pd.concat([df_users_train, df_users_example])
     return res
 
-# insert keys here
+# note that we need rather late version of python-twitter for sleep_on_rate_limit option
 def get_twitter_api():
-    CONSUMER_KEY = "SiwaBFBz0zRQZd1PAed87hu7P"
-    CONSUMER_SECRET = "46cfhnKYdFEWvBRPI91giPmUHLbJXt3hdJINDVbPxtTHExfMFL"
-    ACCESS_TOKEN_KEY = "1106605230-GWfc9XsXM53RaCqPjGClJzZeknjbD38g8rXwjRL"
-    ACCESS_TOKEN_SECRET = "9B9QVWvoUiNYRXkQZf3xXdjBvsH9AtL6sruY0XXqPN2u0"
-
-    return twitter.Api(consumer_key=CONSUMER_KEY,
-                       consumer_secret=CONSUMER_SECRET,
-                       access_token_key=ACCESS_TOKEN_KEY,
-                       access_token_secret=ACCESS_TOKEN_SECRET)
+    return twitter.Api(consumer_key=twitter_credentials.CONSUMER_KEY,
+                       consumer_secret=twitter_credentials.CONSUMER_SECRET,
+                       access_token_key=twitter_credentials.ACCESS_TOKEN_KEY,
+                       access_token_secret=twitter_credentials.ACCESS_TOKEN_SECRET,
+                       sleep_on_rate_limit=True)
 
 # # Compute the distribution of the target variable
 # counts, bins = np.histogram(df_users_train["cat"], bins=[0,1,2])
@@ -364,8 +362,8 @@ def plot_two_features_scatter(feature_i, x_i, feature_j, x_j, y):
     j_positive = x_j[(y != 0)]
     j_negative = x_j[(y == 0)]
 
-    # pl.gca().axes.yaxis.set_ticklabels([])
-    # pl.gca().axes.xaxis.set_ticklabels([])
+    pl.gca().axes.yaxis.set_ticklabels([])
+    pl.gca().axes.xaxis.set_ticklabels([])
 
     pl.scatter(j_positive, i_positive, s=0.1, color='r', alpha=0.3)
     pl.scatter(j_negative, i_negative, s=0.5, color='g', alpha=0.3)
@@ -378,8 +376,8 @@ def plot_feature_histogram(feature_name, x_i, y):
     negative_x = x_i[(y == 0)]
 
     # print feature_name, positive_x
-    # pl.gca().axes.yaxis.set_ticklabels([])
-    # pl.gca().axes.xaxis.set_ticklabels([])
+    pl.gca().axes.yaxis.set_ticklabels([])
+    pl.gca().axes.xaxis.set_ticklabels([])
     pl.hist([positive_x, negative_x], bins=20, color=['r', 'g'],  alpha=0.3, label=['positive', 'negative'])
     pl.xlabel(feature_name)
 

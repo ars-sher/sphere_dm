@@ -11,4 +11,7 @@ hw1_out.csv
 hw2_out.csv
 hw2_out_sknorm.csv
 pics/
+files/
 
+black_listed_ids.pkl
+tweets.pkl

@@ -212,12 +212,12 @@ def draw_tag_cloud(users_tokens):
 
 if __name__ == "__main__":
     df_users = main.get_users()
-    df_users = df_users[:1000]
+    # df_users = df_users[:1000]
 
     users, users_tokens = collect_users_tokens(df_users)
     token_set = get_full_token_set(users_tokens)
     v = DictVectorizer()
     vs = v.fit_transform(users_tokens)
     np.savez("files/out_4.dat", data=vs, users=users, users_tokens=list(token_set))
-    #
+
     draw_tag_cloud(users_tokens)

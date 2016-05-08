@@ -37,6 +37,12 @@ def log_warn(msg):
     log(msg)
 
 
+def log_error(msg):
+    msg = "Error:   " + msg
+    log(msg)
+    exit(1)
+
+
 def get_train_set():
     TRAINING_SET_URL = "twitter_train.txt"
     return pd.read_csv(TRAINING_SET_URL, sep=",", header=0, names=["uid", "cat"])

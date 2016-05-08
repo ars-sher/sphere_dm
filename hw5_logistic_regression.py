@@ -39,12 +39,20 @@ class LogisticRegression:
         # add x0 with ones for convenience
         x0 = np.ones((self.N, 1))
         X = np.hstack((x0, X))
-        # self.W = np.zeros(self.P + 1)
+        self.W = np.zeros(self.P + 1, dtype=np.double)
         # self.W = np.array([-120.4, 45.31, -39.18]) # iris weights
         # self.W = kx_plus_b_to_weigths(1.15, -3.07) # iris weights
-        self.W = kx_plus_b_to_weigths(1.15, -3.07)
-        # self.W = np.array([2, 20.2, 2])
-        print self.cost(X, Y)
+        self.W[0], self.W[1], self.W[2] = kx_plus_b_to_weigths(1.3, -2.07)
+
+        for i in range(10):
+            log_info("cost is %s" % self.cost(X, Y))
+            log_info("weights are %s" % self.W)
+            # log_info("grad is %s" % self.grad(X, Y))
+            # log_info("hessian is %s" % self.hessian(X, Y))
+            self.update_weights(X, Y)
+
+        log_info("final cost is %s" % self.cost(X, Y))
+        log_info("final weights are %s" % self.W)
 
         return self
 
@@ -74,12 +82,34 @@ class LogisticRegression:
             else:
                 raise ValueError("Answers must be 0 or 1")
         cost = s / self.N
-        log_info("cost is %s" % cost)
         return cost
 
-    # gradient, returns np array of self.P + 1 size
-    def grad(self):
-        pass
+    # gradient of the cost function, returns np array of self.P + 1 size
+    def grad(self, X, Y):
+        grad = np.zeros(self.P + 1)
+        for i in range(self.N):
+            sample = X[i]
+            answer = Y[i]
+            grad += (self.hypothesis(sample) - answer) * sample
+        grad /= self.N
+        return grad
+
+    # hessian of the cost function, returns np matrix of (self.P + 1) x (Self.P + 1) size
+    def hessian(self, X, Y):
+        hessian = np.zeros((self.P + 1) * (self.P + 1)).reshape(self.P + 1, self.P + 1)
+        for i in range(self.N):
+            sample = X[i]
+            answer = Y[i]
+            sample_prob = self.hypothesis(sample)
+            hessian += (sample_prob * (1 - sample_prob)) * sample.reshape(self.P + 1, 1) * sample
+        hessian /= self.N
+        return hessian
+
+    # update vector of weights
+    def update_weights(self, X, Y):
+        # TODO: simplify this
+        delta = np.dot(np.linalg.inv(self.hessian(X, Y)), self.grad(X, Y).reshape(self.P + 1, 1)).reshape(1, self.P + 1).flatten()
+        self.W -= delta
 
     @staticmethod
     def sigmoid(t):

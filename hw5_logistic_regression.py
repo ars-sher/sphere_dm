@@ -30,7 +30,26 @@ class LogisticRegression:
         # weights (theta)
         self.W = np.empty([0])
 
+    def draw_2d(self, X, Y):
+        plt.figure(1, figsize=(20, 20))
+        # X here is already with ones column!
+        plt.scatter(X[:, 1], X[:, 2], c=Y, edgecolors='k', cmap=plt.cm.Paired)
+        plt.xlabel('Sepal length')
+        plt.ylabel('Sepal width')
+
+        k, b = weights_to_kx_plus_b(self.W)
+        x_line = np.arange(10)
+        y_line = k * x_line + b
+        log_info("drawing line y =%sx + %s" % (k, b))
+        plt.plot(x_line, y_line, color='k', linestyle='-', linewidth=2)
+        plt.ylim([0, 15])
+        plt.xlim([0, 15])
+
+        plt.show()
+
     def fit(self, X, Y=None):
+        X = X[:100]
+        Y = Y[:100]
         if Y is None:
             raise ValueError("And how we are going to train without answers?")
         self.N = X.shape[0]
@@ -42,17 +61,23 @@ class LogisticRegression:
         self.W = np.zeros(self.P + 1, dtype=np.double)
         # self.W = np.array([-120.4, 45.31, -39.18]) # iris weights
         # self.W = kx_plus_b_to_weigths(1.15, -3.07) # iris weights
-        self.W[0], self.W[1], self.W[2] = kx_plus_b_to_weigths(1.3, -2.07)
+        self.W[0], self.W[1], self.W[2] = kx_plus_b_to_weigths(0, 3)
+        # self.W[0], self.W[1], self.W[2] = kx_plus_b_to_weigths(1.28526416143, 1.00288449882)
 
-        for i in range(10):
-            log_info("cost is %s" % self.cost(X, Y))
-            log_info("weights are %s" % self.W)
+        log_info("initial weights are %s, boundary is y = %sx + %s" %
+                 (self.W, weights_to_kx_plus_b(self.W)[0], weights_to_kx_plus_b(self.W)[1]))
+        log_info("initial cost is %s" % self.cost(X, Y))
+        self.draw_2d(X, Y)
+        for i in range(5):
+            log_info("starting iteration %s" % i)
             # log_info("grad is %s" % self.grad(X, Y))
             # log_info("hessian is %s" % self.hessian(X, Y))
             self.update_weights(X, Y)
+            log_info("now weights are %s, boundary is y = %sx + %s" %
+                     (self.W , weights_to_kx_plus_b(self.W)[0], weights_to_kx_plus_b(self.W)[1]))
+            log_info("now cost is %s" % self.cost(X, Y))
+            self.draw_2d(X, Y)
 
-        log_info("final cost is %s" % self.cost(X, Y))
-        log_info("final weights are %s" % self.W)
 
         return self
 
@@ -65,6 +90,7 @@ class LogisticRegression:
 
     # returns probability of y = 1 for X and current weights
     def hypothesis(self, x):
+        # log_info("x = %s, W = %s" % (x, self.W))
         return LogisticRegression.sigmoid(np.dot(x, self.W))
 
     # cost function to be minimized
@@ -75,12 +101,16 @@ class LogisticRegression:
             sample = X[i]
             answer = Y[i]
             sample_prob = self.hypothesis(sample)
+            it_val = 0
             if answer == 1:
-                s += -np.log(sample_prob)
+                it_val = -np.log(sample_prob)
             elif answer == 0:
-                s += -np.log(1 - sample_prob)
+                it_val = -np.log(1 - sample_prob)
             else:
                 raise ValueError("Answers must be 0 or 1")
+            # log_info("sample_prob = %s" % sample_prob)
+            s += it_val
+
         cost = s / self.N
         return cost
 
@@ -115,7 +145,7 @@ class LogisticRegression:
     def sigmoid(t):
         e = np.exp(-t)
         if not np.isfinite(e):
-            log_error("Exponential overflow")
+            log_error("Exponential overflow, arg is %s" % t)
         return 1 / (1 + e)
 
 
@@ -126,27 +156,30 @@ def iris_check(model):
 
     model.fit(X, Y)
 
+    return
     h = .02
     x_min, x_max = X[:, 0].min() - .5, X[:, 0].max() + .5
     y_min, y_max = X[:, 1].min() - .5, X[:, 1].max() + .5
     xx, yy = np.meshgrid(np.arange(x_min, x_max, h), np.arange(y_min, y_max, h))
     Z = model.predict(np.c_[xx.ravel(), yy.ravel()])
-    print model.predict(np.array([[3.8, 1.5]]))
 
     Z = Z.reshape(xx.shape)
-    plt.figure(1, figsize=(4, 3))
+    plt.figure(1, figsize=(4, 4))
     plt.pcolormesh(xx, yy, Z, cmap=plt.cm.Paired)
 
     plt.scatter(X[:, 0], X[:, 1], c=Y, edgecolors='k', cmap=plt.cm.Paired)
     plt.xlabel('Sepal length')
     plt.ylabel('Sepal width')
 
-    plt.xlim(xx.min(), xx.max())
-    plt.ylim(yy.min(), yy.max())
+    # plt.xlim(xx.min(), xx.max())
+    # plt.ylim(yy.min(), yy.max())
+    plt.ylim([0, 15])
+    plt.xlim([0, 15])
 
     k, b = weights_to_kx_plus_b(model.W)
     x_line = np.arange(10)
     y_line = k * x_line + b
+    log_info("drawing line y =%sx + %s" % (k, b))
     plt.plot(x_line, y_line, color='k', linestyle='-', linewidth=2)
 
     plt.show()

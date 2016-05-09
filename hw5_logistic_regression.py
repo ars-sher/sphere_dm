@@ -61,14 +61,14 @@ class LogisticRegression:
         self.W = np.zeros(self.P + 1, dtype=np.double)
         # self.W = np.array([-120.4, 45.31, -39.18]) # iris weights
         # self.W = kx_plus_b_to_weigths(1.15, -3.07) # iris weights
-        self.W[0], self.W[1], self.W[2] = kx_plus_b_to_weigths(0, 3)
+        self.W[0], self.W[1], self.W[2] = kx_plus_b_to_weigths(0, 14)
         # self.W[0], self.W[1], self.W[2] = kx_plus_b_to_weigths(1.28526416143, 1.00288449882)
 
         log_info("initial weights are %s, boundary is y = %sx + %s" %
                  (self.W, weights_to_kx_plus_b(self.W)[0], weights_to_kx_plus_b(self.W)[1]))
         log_info("initial cost is %s" % self.cost(X, Y))
         self.draw_2d(X, Y)
-        for i in range(5):
+        for i in range(10):
             log_info("starting iteration %s" % i)
             # log_info("grad is %s" % self.grad(X, Y))
             # log_info("hessian is %s" % self.hessian(X, Y))
@@ -77,7 +77,7 @@ class LogisticRegression:
                      (self.W , weights_to_kx_plus_b(self.W)[0], weights_to_kx_plus_b(self.W)[1]))
             log_info("now cost is %s" % self.cost(X, Y))
             self.draw_2d(X, Y)
-
+        self.draw_2d(X, Y)
 
         return self
 
@@ -88,10 +88,40 @@ class LogisticRegression:
     def predict(self, X):
         return np.zeros(X.shape[0])
 
-    # returns probability of y = 1 for X and current weights
+    # calculates sigmoid with hack allowing t << 0 argument
+    # equals to probability of y = 1 for X and current weights
     def hypothesis(self, x):
-        # log_info("x = %s, W = %s" % (x, self.W))
-        return LogisticRegression.sigmoid(np.dot(x, self.W))
+        t = np.dot(x, self.W)
+        if t > 0:
+            e = np.exp(-t)
+            assert np.isfinite(e)
+            return 1.0 / (1 + e)
+        else:
+            e = np.exp(t)
+            assert np.isfinite(e)
+            return e / (1 + e)
+
+    # simplified log(sigmoid(wt)) with hack
+    def log_sigmoid(self, x):
+        t = np.dot(x, self.W)
+        if t > 0:
+            return -np.log(1 + np.exp(-t))
+        else:
+            return t - np.log(1 + np.exp(t))
+
+    # simplified log(1 - sigmoid(wt)) with hack
+    def log_one_minus_sigmoid(self, x):
+        t = np.dot(x, self.W)
+        if t > 0:
+            return -t + np.log(1 + np.exp(-t))
+        else:
+            return -np.log(1 + np.exp(t))
+
+    # # returns probability of y = 1 for X and current weights
+    # def hypothesis(self, x):
+    #     # log_info("x = %s, W = %s" % (x, self.W))
+    #     return LogisticRegression.sigmoid(np.dot(x, self.W))
+
 
     # cost function to be minimized
     def cost(self, X, Y):
@@ -100,12 +130,11 @@ class LogisticRegression:
         for i in range(self.N):
             sample = X[i]
             answer = Y[i]
-            sample_prob = self.hypothesis(sample)
             it_val = 0
             if answer == 1:
-                it_val = -np.log(sample_prob)
+                it_val = self.log_sigmoid(sample)
             elif answer == 0:
-                it_val = -np.log(1 - sample_prob)
+                it_val = -self.log_one_minus_sigmoid(sample)
             else:
                 raise ValueError("Answers must be 0 or 1")
             # log_info("sample_prob = %s" % sample_prob)
@@ -140,13 +169,10 @@ class LogisticRegression:
         # TODO: simplify this
         delta = np.dot(np.linalg.inv(self.hessian(X, Y)), self.grad(X, Y).reshape(self.P + 1, 1)).reshape(1, self.P + 1).flatten()
         self.W -= delta
-
-    @staticmethod
-    def sigmoid(t):
-        e = np.exp(-t)
-        if not np.isfinite(e):
-            log_error("Exponential overflow, arg is %s" % t)
-        return 1 / (1 + e)
+        w0 = self.W[0]
+        # dirty hack to avoid big weights
+        if w0 > 3000:
+            self.W /= w0
 
 
 def iris_check(model):

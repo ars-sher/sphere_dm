@@ -22,13 +22,15 @@ def kx_plus_b_to_weigths(k, b):
 
 
 class LogisticRegression:
-    def __init__(self):
+    def __init__(self, reg_lambda=0.0):
         # number of samples
         self.N = 0
         # number of features
         self.P = 0
         # weights (theta)
         self.W = np.empty([0])
+        # regularization parameter
+        self.reg_lambda = reg_lambda
 
     def draw_2d(self, X, Y):
         plt.figure(1, figsize=(20, 20))
@@ -139,8 +141,12 @@ class LogisticRegression:
                 raise ValueError("Answers must be 0 or 1")
             # log_info("sample_prob = %s" % sample_prob)
             s += it_val
-
-        cost = s / self.N
+        # calculate regularization
+        e_w = 0.0
+        for w_i in self.W:
+            e_w += w_i * w_i
+        reg = self.reg_lambda / 2 * e_w
+        cost = s / self.N + reg
         return cost
 
     # gradient of the cost function, returns np array of self.P + 1 size
@@ -150,7 +156,8 @@ class LogisticRegression:
             sample = X[i]
             answer = Y[i]
             grad += (self.hypothesis(sample) - answer) * sample
-        grad /= self.N
+        reg = self.reg_lambda * self.W
+        grad = grad / self.N + reg
         return grad
 
     # hessian of the cost function, returns np matrix of (self.P + 1) x (Self.P + 1) size
@@ -161,7 +168,8 @@ class LogisticRegression:
             answer = Y[i]
             sample_prob = self.hypothesis(sample)
             hessian += (sample_prob * (1 - sample_prob)) * sample.reshape(self.P + 1, 1) * sample
-        hessian /= self.N
+        reg = self.reg_lambda * np.ones((self.P + 1, self.P + 1))
+        hessian = hessian / self.N + reg
         return hessian
 
     # update vector of weights
@@ -171,7 +179,8 @@ class LogisticRegression:
         self.W -= delta
         w0 = self.W[0]
         # dirty hack to avoid big weights
-        if w0 > 3000:
+        if abs(w0) > 3000:
+            log_warn("Weights are big: abs(w0) > %s, squashing them..." % w0)
             self.W /= w0
 
 
@@ -238,5 +247,5 @@ if __name__ == "__main__":
 
     # sklearn_iris_check()
 
-    model = LogisticRegression()
+    model = LogisticRegression(reg_lambda=0.0001)
     iris_check(model)

@@ -4,9 +4,12 @@ import pandas as pd
 import matplotlib.pylab as pl
 import sklearn.cross_validation as cv
 import sklearn.metrics as sm
+from scipy.sparse import coo_matrix
+from scipy.sparse import csc_matrix
 
 import matplotlib.pyplot as plt
 from sklearn import linear_model, datasets
+import sklearn
 
 from main import log_info, log_warn, log_error
 
@@ -42,7 +45,7 @@ class LogisticRegression:
         k, b = weights_to_kx_plus_b(self.W)
         x_line = np.arange(10)
         y_line = k * x_line + b
-        log_info("drawing line y =%sx + %s" % (k, b))
+        log_info("drawing line y = %sx + %s" % (k, b))
         plt.plot(x_line, y_line, color='k', linestyle='-', linewidth=2)
         plt.ylim([0, 15])
         plt.xlim([0, 15])
@@ -63,23 +66,18 @@ class LogisticRegression:
         self.W = np.zeros(self.P + 1, dtype=np.double)
         # self.W = np.array([-120.4, 45.31, -39.18]) # iris weights
         # self.W = kx_plus_b_to_weigths(1.15, -3.07) # iris weights
-        self.W[0], self.W[1], self.W[2] = kx_plus_b_to_weigths(0, 14)
+        # self.W[0], self.W[1], self.W[2] = kx_plus_b_to_weigths(0, 4)
         # self.W[0], self.W[1], self.W[2] = kx_plus_b_to_weigths(1.28526416143, 1.00288449882)
 
-        log_info("initial weights are %s, boundary is y = %sx + %s" %
-                 (self.W, weights_to_kx_plus_b(self.W)[0], weights_to_kx_plus_b(self.W)[1]))
+        log_info("initial weights are %s" % self.W)
         log_info("initial cost is %s" % self.cost(X, Y))
-        self.draw_2d(X, Y)
         for i in range(10):
             log_info("starting iteration %s" % i)
             # log_info("grad is %s" % self.grad(X, Y))
             # log_info("hessian is %s" % self.hessian(X, Y))
             self.update_weights(X, Y)
-            log_info("now weights are %s, boundary is y = %sx + %s" %
-                     (self.W , weights_to_kx_plus_b(self.W)[0], weights_to_kx_plus_b(self.W)[1]))
+            log_info("now weights are %s" % self.W)
             log_info("now cost is %s" % self.cost(X, Y))
-            self.draw_2d(X, Y)
-        self.draw_2d(X, Y)
 
         return self
 
@@ -134,7 +132,7 @@ class LogisticRegression:
             answer = Y[i]
             it_val = 0
             if answer == 1:
-                it_val = self.log_sigmoid(sample)
+                it_val = -self.log_sigmoid(sample)
             elif answer == 0:
                 it_val = -self.log_one_minus_sigmoid(sample)
             else:
@@ -157,7 +155,8 @@ class LogisticRegression:
             answer = Y[i]
             grad += (self.hypothesis(sample) - answer) * sample
         reg = self.reg_lambda * self.W
-        grad = grad / self.N + reg
+        grad /= self.N
+        grad += reg
         return grad
 
     # hessian of the cost function, returns np matrix of (self.P + 1) x (Self.P + 1) size
@@ -169,7 +168,8 @@ class LogisticRegression:
             sample_prob = self.hypothesis(sample)
             hessian += (sample_prob * (1 - sample_prob)) * sample.reshape(self.P + 1, 1) * sample
         reg = self.reg_lambda * np.ones((self.P + 1, self.P + 1))
-        hessian = hessian / self.N + reg
+        hessian /= self.N
+        hessian += reg
         return hessian
 
     # update vector of weights
@@ -179,9 +179,12 @@ class LogisticRegression:
         self.W -= delta
         w0 = self.W[0]
         # dirty hack to avoid big weights
-        if abs(w0) > 3000:
-            log_warn("Weights are big: abs(w0) > %s, squashing them..." % w0)
-            self.W /= w0
+        # if abs(w0) > 3000:
+        #     log_info("now weights are %s, boundary is y = %sx + %s" %
+        #              (self.W, weights_to_kx_plus_b(self.W)[0], weights_to_kx_plus_b(self.W)[1]))
+        #     log_info("now cost is %s" % self.cost(X, Y))
+        #     log_warn("Weights are big: abs(w0) > %s, squashing them..." % w0)
+        #     self.W /= w0
 
 
 def iris_check(model):
@@ -224,28 +227,65 @@ def sklearn_iris_check():
     logreg = linear_model.LogisticRegression(penalty='l2', C=1000000)
     iris_check(logreg)
 
-if __name__ == "__main__":
-    # data = np.load("files/out_4.dat.npz")
-    # users = data["users"]
-    # X_dataset = data["data"].reshape(1, )[0]
-    #
-    # TRAINING_SET_URL = "twitter_train.txt"
-    # EXAMPLE_SET_URL = "twitter_example.txt"
-    #
-    # df_users_train = pd.read_csv(TRAINING_SET_URL, sep=",", header=0)
-    # df_users_ex = pd.read_csv(EXAMPLE_SET_URL, sep=",", header=0)
-    # df_users_ex['cat'] = None
-    #
-    # train_users = df_users_train["uid"].values
-    #
-    # # leave in X only train_users's data
-    # ix = np.in1d(users, train_users).reshape(users.shape)
-    # X = X_dataset[np.where(ix)]
-    #
-    # Y = df_users_train['cat'].values
-    # print "Resulting training set: (%dx%d) feature matrix, %d target vector" % (X.shape[0], X.shape[1], Y.shape[0])
 
+# Draw tokens histogram in log scales
+def draw_log_hist(X):
+    X = X.tocsc().tocoo()  # collapse multiple records. I don't think it is needed
+
+    # we are interested only in existence of a token in user posts, not it's quantity
+    vf = np.vectorize(lambda x: 1 if x > 0 else 0)
+    X_data_booleaned = vf(X.data)
+    X = coo_matrix((X_data_booleaned, (X.row, X.col)), shape=X.shape)
+
+    # now we will calculate (1, 1, ... 1) * X to sum up rows
+    features_counts = np.ones(X.shape[0]) * X
+
+    features_counts_sorted = np.sort(features_counts)
+    features_counts_sorted = features_counts_sorted[::-1]  # this is how decreasing sort looks like in numpy
+    ranks = np.arange(features_counts_sorted.size)
+
+    plt.figure()
+    plt.semilogy(ranks, features_counts_sorted,
+                 color='red',
+                 linewidth=2)
+    plt.title('For each feature (word), how many users has it at least once?')
+    plt.ylabel("number of users which has this word at least once")
+    plt.xlabel("rank")
+    plt.show()
+    # Your code here
+
+    return features_counts
+
+
+def auroc(y_prob, y_true):
+    return sklearn.metrics.roc_auc_score(y_true, y_prob)
+
+
+
+if __name__ == "__main__":
+    data = np.load("files/out_4.dat.npz")
+    users = data["users"] # list of user ids with downloaded data
+    X_dataset = data["data"].reshape(1, )[0]  # what?
+
+    TRAINING_SET_URL = "twitter_train.txt"
+    EXAMPLE_SET_URL = "twitter_example.txt"
+
+    df_users_train = pd.read_csv(TRAINING_SET_URL, sep=",", header=0)
+    df_users_ex = pd.read_csv(EXAMPLE_SET_URL, sep=",", header=0)  # cat column here is fake
+    df_users_ex['cat'] = None
+
+    train_users = df_users_train["uid"].values  # list of user ids for training
+
+    # leave in X only train_users's data
+    ix = np.in1d(users, train_users).reshape(users.shape)
+    X = X_dataset[np.where(ix)]
+
+    Y = df_users_train['cat'].values
+    print "Resulting training set: (%dx%d) feature matrix, %d target vector" % (X.shape[0], X.shape[1], Y.shape[0])
+
+    features_counts = draw_log_hist(X)
+    X1 = X.tocsc()[:, features_counts > 100].toarray()
     # sklearn_iris_check()
 
-    model = LogisticRegression(reg_lambda=0.0001)
-    iris_check(model)
+    # model = LogisticRegression(reg_lambda=0.001)
+    # iris_check(model)

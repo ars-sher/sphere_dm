@@ -81,8 +81,6 @@ class LogisticRegression:
         # self.W[0], self.W[1], self.W[2] = kx_plus_b_to_weigths(0, 4)
         # self.W[0], self.W[1], self.W[2] = kx_plus_b_to_weigths(1.28526416143, 1.00288449882)
 
-        old_cost = min_init_c
-        old_w = self.W
         log_info("initial weights are %s" % self.W)
         log_info("initial cost is %s" % self.cost(X, Y))
         for i in range(6):
@@ -93,12 +91,6 @@ class LogisticRegression:
             new_cost = self.cost(X, Y)
             log_info("now weights are %s" % self.W)
             log_info("now cost is %s" % new_cost)
-            if new_cost > old_cost * 10:
-                log_info("Rolling back...")
-                self.W = old_w
-                return
-            old_cost = new_cost
-            old_w = self.W
 
         return self
 
@@ -394,21 +386,9 @@ if __name__ == "__main__":
     log_info("Resulting training set after filtering: (%dx%d) feature matrix, %d target vector" %
              (X1.shape[0], X1.shape[1], Y.shape[0]))
 
-    # fit_and_draw_roc(X1, Y, [0.0])
+    fit_and_draw_roc(X1, Y, [0.0, 0.1, 0.01])
     # print score(X1, Y, X1, Y, reg_lambda=0.0)
 
-    model = LogisticRegression(0.0)
-    model.fit(X1, Y)
-    evaluate_unknown(model, df_users_ex["uid"].values )
-
-    # iris = datasets.load_iris()
-    # X = iris.data[:100, :2]  # we only take the first two features.
-    # Y = iris.target[:100]
-    # sh = sklearn.utils.shuffle(X, Y)
-    # X, Y = sh[0], sh[1]
-    # best_c = choose_best_reg_lambda(X, Y, [0, 0.01, 0.001])
-
-    # sklearn_iris_check()
-
-    # model = LogisticRegression(reg_lambda=0.001)
-    # iris_check(model)
+    # model = LogisticRegression(0.0)
+    # model.fit(X1, Y)
+    # evaluate_unknown(model, df_users_ex["uid"].values )

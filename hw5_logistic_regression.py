@@ -10,6 +10,7 @@ from scipy.sparse import csc_matrix
 import matplotlib.pyplot as plt
 from sklearn import linear_model, datasets
 import sklearn
+from sklearn.cross_validation import KFold
 
 from main import log_info, log_warn, log_error
 
@@ -53,17 +54,28 @@ class LogisticRegression:
         plt.show()
 
     def fit(self, X, Y=None):
-        X = X[:100]
-        Y = Y[:100]
+        # X = X[:100]
+        # Y = Y[:100]
         if Y is None:
             raise ValueError("And how we are going to train without answers?")
         self.N = X.shape[0]
         self.P = X.shape[1]
-        log_info("Training logistic regression, N is %s and P is %s" % (self.N, self.P))
+        log_info("Training logistic regression, number of samples is %s and number of features is %s" % (self.N, self.P))
         # add x0 with ones for convenience
         x0 = np.ones((self.N, 1))
         X = np.hstack((x0, X))
         self.W = np.zeros(self.P + 1, dtype=np.double)
+        min_c_index = 0
+        min_init_c = np.inf
+        for i in range(self.N):
+            self.W = X[i]
+            c = self.cost(X, Y)
+            if c < min_init_c:
+                log_info("x with index %s has init cost %s" % (i, c))
+                min_c_index = i
+                min_init_c = c
+        self.W = X[min_c_index]
+
         # self.W = np.array([-120.4, 45.31, -39.18]) # iris weights
         # self.W = kx_plus_b_to_weigths(1.15, -3.07) # iris weights
         # self.W[0], self.W[1], self.W[2] = kx_plus_b_to_weigths(0, 4)
@@ -81,12 +93,21 @@ class LogisticRegression:
 
         return self
 
-    def predict_proba(self, X):
-        import numpy.random as nr
-        return nr.random((X.shape[0], 2))
-
     def predict(self, X):
-        return np.zeros(X.shape[0])
+        assert (X.shape[1] == self.P)
+        # add x0 with ones for convenience
+        x0 = np.ones((X.shape[0], 1))
+        X = np.hstack((x0, X))
+        # for each row x_i, return 1 if prob(y_i == 1) > 0.5, else 0
+        return np.apply_along_axis(lambda x: 1 if self.hypothesis(x) > 0.5 else 0, 1, X)
+
+    def predict_proba(self, X):
+        assert (X.shape[1] == self.P)
+        # add x0 with ones for convenience
+        x0 = np.ones((X.shape[0], 1))
+        X = np.hstack((x0, X))
+        # for each row x_i, prob(y_i == 1)
+        return np.apply_along_axis(lambda x: self.hypothesis(x), 1, X)
 
     # calculates sigmoid with hack allowing t << 0 argument
     # equals to probability of y = 1 for X and current weights
@@ -251,8 +272,7 @@ def draw_log_hist(X):
     plt.title('For each feature (word), how many users has it at least once?')
     plt.ylabel("number of users which has this word at least once")
     plt.xlabel("rank")
-    plt.show()
-    # Your code here
+    # plt.show()
 
     return features_counts
 
@@ -260,6 +280,72 @@ def draw_log_hist(X):
 def auroc(y_prob, y_true):
     return sklearn.metrics.roc_auc_score(y_true, y_prob)
 
+
+# learn and measure score
+def score(X_train, Y_train, X_test, Y_test, reg_lambda=0.0):
+    log_info("Starting scoring, X_train size is %s, Y_train size is %s, X_test size is %s, Y_test size is %s; "
+             "number of features is %s" % (X_train.shape[0], Y_train.size, X_test.shape[0], Y_test.size, X.shape[1]))
+    model = LogisticRegression(reg_lambda=reg_lambda)
+    model.fit(X_train, Y_train)
+    Y_prob = model.predict_proba(X_test)
+    return auroc(Y_prob, Y_test)
+
+
+# calculate cross validation score
+def cross_val_score(X, Y, n_folds=5, reg_lambda=0.0):
+    assert(X.shape[0] == Y.shape[0])
+    kf = KFold(X.shape[0], n_folds=n_folds)
+    scores = []
+    for train_index, test_index in kf:
+        X_train, X_test = X[train_index], X[test_index]
+        Y_train, Y_test = Y[train_index], Y[test_index]
+        scores.append(score(X_train, Y_train, X_test, Y_test, reg_lambda=reg_lambda))
+    mean = sum(scores) * 1.0 / n_folds
+    log_info("Calculated scores: %s" % scores)
+    log_info("Mean: %s" % mean)
+    return mean
+
+
+def choose_best_reg_lambda(X, Y, C):
+    best_c, best_cvs = C[0], cross_val_score(X, Y, reg_lambda=C[0])
+    for c in C[1:]:
+        cvs = cross_val_score(X, Y, reg_lambda=c)
+        if cvs > best_cvs:
+            best_css = cvs
+            best_c = c
+    log_info("Best c is %s with cross val score %s" % (best_c, best_cvs))
+    return best_c
+
+
+# train on part of data, find the best param, then test on remaining data and draw roc curve
+def fit_and_draw_roc(X, Y, C):
+    tp = int(Y.size * 0.9)
+    X_train, Y_train = X[:tp], Y[:tp]
+    X_test, Y_test = X[tp:], Y[tp:]
+    best_c = choose_best_reg_lambda(X_train, Y_train, C)
+
+    model = LogisticRegression(reg_lambda=best_c)
+    model.fit(X_train, Y_train)
+    Y_prob = model.predict_proba(X_test)
+    roc_auc = auroc(Y_prob, Y_test)
+    fpr, tpr, thresholds = sklearn.metrics.roc_curve(Y_test, Y_prob)
+    print thresholds
+    plot_roc_curve(tpr, fpr, roc_auc)
+
+
+def plot_roc_curve(tprs, fprs, roc_auc):
+    plt.figure()
+    print tprs
+    print fprs
+    plt.plot(fprs, tprs, label='ROC curve', linewidth=2)
+    plt.plot([0, 1], [0, 1], 'k--')  # draw y = x
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC curve')
+    plt.legend(loc="lower right")
+    plt.show()
 
 
 if __name__ == "__main__":
@@ -281,10 +367,21 @@ if __name__ == "__main__":
     X = X_dataset[np.where(ix)]
 
     Y = df_users_train['cat'].values
-    print "Resulting training set: (%dx%d) feature matrix, %d target vector" % (X.shape[0], X.shape[1], Y.shape[0])
+    log_info("Resulting training set: (%dx%d) feature matrix, %d target vector" % (X.shape[0], X.shape[1], Y.shape[0]))
 
     features_counts = draw_log_hist(X)
-    X1 = X.tocsc()[:, features_counts > 100].toarray()
+    X1 = X.tocsc()[:, features_counts > 125].toarray()
+    log_info("Resulting training set after filtering: (%dx%d) feature matrix, %d target vector" %
+             (X1.shape[0], X1.shape[1], Y.shape[0]))
+    fit_and_draw_roc(X1, Y, [0.00001])
+
+    # iris = datasets.load_iris()
+    # X = iris.data[:100, :2]  # we only take the first two features.
+    # Y = iris.target[:100]
+    # sh = sklearn.utils.shuffle(X, Y)
+    # X, Y = sh[0], sh[1]
+    # best_c = choose_best_reg_lambda(X, Y, [0, 0.01, 0.001])
+
     # sklearn_iris_check()
 
     # model = LogisticRegression(reg_lambda=0.001)

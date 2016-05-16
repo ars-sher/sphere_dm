@@ -67,7 +67,7 @@ class LogisticRegression:
         self.W = np.zeros(self.P + 1, dtype=np.double)
         min_c_index = 0
         min_init_c = np.inf
-        for i in range(self.N):
+        for i in range(min(500, self.N)):
             self.W = X[i]
             c = self.cost(X, Y)
             if c < min_init_c:
@@ -81,15 +81,24 @@ class LogisticRegression:
         # self.W[0], self.W[1], self.W[2] = kx_plus_b_to_weigths(0, 4)
         # self.W[0], self.W[1], self.W[2] = kx_plus_b_to_weigths(1.28526416143, 1.00288449882)
 
+        old_cost = min_init_c
+        old_w = self.W
         log_info("initial weights are %s" % self.W)
         log_info("initial cost is %s" % self.cost(X, Y))
-        for i in range(10):
+        for i in range(6):
             log_info("starting iteration %s" % i)
             # log_info("grad is %s" % self.grad(X, Y))
             # log_info("hessian is %s" % self.hessian(X, Y))
             self.update_weights(X, Y)
+            new_cost = self.cost(X, Y)
             log_info("now weights are %s" % self.W)
-            log_info("now cost is %s" % self.cost(X, Y))
+            log_info("now cost is %s" % new_cost)
+            if new_cost > old_cost * 10:
+                log_info("Rolling back...")
+                self.W = old_w
+                return
+            old_cost = new_cost
+            old_w = self.W
 
         return self
 
@@ -348,6 +357,17 @@ def plot_roc_curve(tprs, fprs, roc_auc):
     plt.show()
 
 
+def evaluate_unknown(model, users_ex_ids):
+    ix = np.in1d(users, users_ex_ids).reshape(users.shape)
+    X = X_dataset[np.where(ix)]
+    X1 = X.tocsc()[:, features_counts > 125].toarray()
+    log_info("Resulting testing set after filtering: (%dx%d) feature matrix" %
+             (X1.shape[0], X1.shape[1]))
+    res = model.predict(X1)
+    res_matr = np.hstack((users_ex_ids.reshape((users_ex_ids.size, 1)), res.reshape((res.size, 1))))
+    np.savetxt("hw5_res.csv", res_matr, delimiter=',', header="uid,cat", comments="", fmt='%d')
+
+
 if __name__ == "__main__":
     data = np.load("files/out_4.dat.npz")
     users = data["users"] # list of user ids with downloaded data
@@ -373,7 +393,13 @@ if __name__ == "__main__":
     X1 = X.tocsc()[:, features_counts > 125].toarray()
     log_info("Resulting training set after filtering: (%dx%d) feature matrix, %d target vector" %
              (X1.shape[0], X1.shape[1], Y.shape[0]))
-    fit_and_draw_roc(X1, Y, [0.00001])
+
+    # fit_and_draw_roc(X1, Y, [0.0])
+    # print score(X1, Y, X1, Y, reg_lambda=0.0)
+
+    model = LogisticRegression(0.0)
+    model.fit(X1, Y)
+    evaluate_unknown(model, df_users_ex["uid"].values )
 
     # iris = datasets.load_iris()
     # X = iris.data[:100, :2]  # we only take the first two features.

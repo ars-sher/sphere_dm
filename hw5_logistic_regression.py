@@ -132,7 +132,7 @@ class LogisticRegression:
                 stable_cost_counter += 1
             else:
                 stable_cost_counter = 0
-            if stable_cost_counter == 3 or i > 30:
+            if stable_cost_counter == 5 or i > 30:
                 break
 
         return self
@@ -305,7 +305,8 @@ def choose_best_reg_lambda(X, Y, C):
         if cvs > best_cvs:
             best_cvs = cvs
             best_c = c
-            log_info("Choosing lambda results: %s" % res_dict)
+        log_info("cvs for lambda %s is %s" % (c, cvs))
+    log_info("Choosing lambda results: %s" % res_dict)
     log_info("Best c is %s with cross val score %s" % (best_c, best_cvs))
     return best_c
 
@@ -322,15 +323,12 @@ def fit_and_draw_roc(X, Y, C):
     Y_prob = model.predict_proba(X_test)
     roc_auc = auroc(Y_prob, Y_test)
     fpr, tpr, thresholds = sklearn.metrics.roc_curve(Y_test, Y_prob)
-    print thresholds
     plot_roc_curve(tpr, fpr, roc_auc)
     return model
 
 
 def plot_roc_curve(tprs, fprs, roc_auc):
     plt.figure()
-    print tprs
-    print fprs
     plt.plot(fprs, tprs, label='ROC curve', linewidth=2)
     plt.plot([0, 1], [0, 1], 'k--')  # draw y = x
     plt.xlim([0.0, 1.0])
@@ -348,6 +346,7 @@ def evaluate_unknown(model, users_ex_ids):
     X1 = X.tocsc()[:, features_counts > features_counts_border].toarray()
     log_info("Resulting testing set after filtering: (%dx%d) feature matrix" %
              (X1.shape[0], X1.shape[1]))
+    # X1 = sklearn.preprocessing.normalize(X1)
     res = model.predict(X1)
     res_matr = np.hstack((users_ex_ids.reshape((users_ex_ids.size, 1)), res.reshape((res.size, 1))))
     np.savetxt("hw5_res.csv", res_matr, delimiter=',', header="uid,cat", comments="", fmt='%d')
@@ -375,22 +374,40 @@ if __name__ == "__main__":
     log_info("Resulting training set: (%dx%d) feature matrix, %d target vector" % (X.shape[0], X.shape[1], Y.shape[0]))
 
     features_counts = draw_log_hist(X)
-    features_counts_border = 100
+    features_counts_border = 200
     X1 = X.tocsc()[:, features_counts > features_counts_border].toarray()
     log_info("Resulting training set after filtering: (%dx%d) feature matrix, %d target vector" %
              (X1.shape[0], X1.shape[1], Y.shape[0]))
     X1 = sklearn.preprocessing.normalize(X1)
 
+    # other stuff
+    from sklearn.naive_bayes import MultinomialNB
+    from sklearn.linear_model import SGDClassifier
+    from sklearn.linear_model import PassiveAggressiveClassifier
+    from sklearn.linear_model import Perceptron
+    from sklearn.tree import DecisionTreeClassifier
+    from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+    from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
+    from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
+    from sklearn.svm import SVC
+    # clf = SVC(gamma=2, C=1) # 0.64
+    # clf = SVC(gamma=0.001, C=1.0) # 0.50
+    # clf = SVC(kernel="sigmoid", gamma=2, C=1.0) # 58
+    # clf =  SVC(kernel="linear", C=0.025, gamma=2) # 59
+    # clf =  SVC(kernel="poly", C=1.0, gamma=20) # 62
+    # print sklearn.cross_validation.cross_val_score(clf, X1, Y, cv=3).mean()
+
+
     # find best param on twitter data and draw roc
-    # print score(X1, Y, X1, Y, reg_lambda=0.0)
-    # cross_val_score(X1, Y, reg_lambda=0.01)
-    best_c = choose_best_reg_lambda(X1, Y, [0.01, 0.1, 0.0, 0.1, 1, 10, 100, 1000, 10000])
-    # fit_and_draw_roc(X1, Y, [0.0])
+    # print score(X1, Y, X1, Y, reg_lambda=10.0)
+    # cross_val_score(X1, Y, reg_lambda=10.0)
+    # best_c = choose_best_reg_lambda(X1, Y, [0.1, 1, 10.0, 25.0, 50.0, 75.0, 100.0])
+    fit_and_draw_roc(X1, Y, [1, 10.0, 25.0])
 
     # evaluate on unknown data
-    # model = LogisticRegression(0.0)
-    # model.fit(X1, Y)
-    # evaluate_unknown(model, df_users_ex["uid"].values )
+    model = LogisticRegression(10.0)
+    model.fit(X1, Y)
+    evaluate_unknown(model, df_users_ex["uid"].values )
 
     # evaluate iris
     # iris = datasets.load_iris()

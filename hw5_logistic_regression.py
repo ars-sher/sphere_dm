@@ -31,10 +31,14 @@ class LogisticRegression:
         self.N = 0
         # number of features
         self.P = 0
-        # weights (theta)
-        self.W = np.empty([0])
+        # weights (theta), array of size self.P + 1
+        self.W = np.empty(0)
         # regularization parameter
         self.reg_lambda = reg_lambda
+
+        self.log_sigmoids_vectorizer = np.vectorize(LogisticRegression.log_sigmoid)
+        self.log_one_minus_sigmoids_vectorizer = np.vectorize(LogisticRegression.log_one_minus_sigmoid)
+        self.sigmoid_vectorizer = np.vectorize(LogisticRegression.sigmoid)
 
     def draw_2d(self, X, Y):
         plt.figure(1, figsize=(20, 20))
@@ -53,67 +57,108 @@ class LogisticRegression:
 
         plt.show()
 
-    def fit(self, X, Y=None):
+    def fit(self, X, Y=None, eps=0.05):
+        assert (X.shape[0] == Y.shape[0])
         # X = X[:100]
         # Y = Y[:100]
         if Y is None:
             raise ValueError("And how we are going to train without answers?")
         self.N = X.shape[0]
         self.P = X.shape[1]
-        log_info("Training logistic regression, number of samples is %s and number of features is %s" % (self.N, self.P))
+        log_info("Training logistic regression, number of samples is %s and number of features is %s, lambda is %s" %
+                 (self.N, self.P, self.reg_lambda))
         # add x0 with ones for convenience
-        x0 = np.ones((self.N, 1))
-        X = np.hstack((x0, X))
+        X = LogisticRegression.add_column_of_ones(X)
         self.W = np.zeros(self.P + 1, dtype=np.double)
-        min_c_index = 0
-        min_init_c = np.inf
-        for i in range(min(500, self.N)):
-            self.W = X[i]
-            c = self.cost(X, Y)
-            if c < min_init_c:
-                log_info("x with index %s has init cost %s" % (i, c))
-                min_c_index = i
-                min_init_c = c
-        self.W = X[min_c_index]
+        Xw = np.squeeze(np.asarray(np.dot(X, self.W)))
+
+        # try to find best initial weights
+        # best_init_W = self.W
+        # min_init_c = self.cost(Xw, Y)
+        # for i in range(500):
+        #     self.W = np.random.rand(self.P + 1)
+        #     Xw = np.squeeze(np.asarray(np.dot(X, self.W)))
+        #     c = self.cost(Xw, Y)
+        #     if c < min_init_c:
+        #         log_info("Found weights with cost %s" % c)
+        #         best_init_W = self.W
+        #         min_init_c = c
+        #     else:
+        #         log_info("min_c is %s, c is %s" % (min_init_c, c))
+        # self.W = best_init_W
 
         # self.W = np.array([-120.4, 45.31, -39.18]) # iris weights
         # self.W = kx_plus_b_to_weigths(1.15, -3.07) # iris weights
         # self.W[0], self.W[1], self.W[2] = kx_plus_b_to_weigths(0, 4)
         # self.W[0], self.W[1], self.W[2] = kx_plus_b_to_weigths(1.28526416143, 1.00288449882)
 
+        # main cycle
+        cost = self.cost(Xw, Y)
+
         log_info("initial weights are %s" % self.W)
-        log_info("initial cost is %s" % self.cost(X, Y))
-        for i in range(6):
+        log_info("initial cost is %s" % cost)
+        i = 0
+        stable_cost_counter = 0
+        while True:
             log_info("starting iteration %s" % i)
-            # log_info("grad is %s" % self.grad(X, Y))
-            # log_info("hessian is %s" % self.hessian(X, Y))
-            self.update_weights(X, Y)
-            new_cost = self.cost(X, Y)
+            old_cost = cost
+            # contains x * w for each x in X while fitting, array of self.N size
+            Xw = np.squeeze(np.asarray(np.dot(X, self.W)))
+            X_transposed = np.transpose(X)
+
+            # contains h(X) for each x in X according to current self.W, array of self.N size
+            hypos = self.sigmoid_vectorizer(Xw)
+            # gradient of the cost function, array of self.P + 1 size
+            grad = np.squeeze(np.asarray(np.dot(X_transposed, (hypos - Y)))) + self.reg_lambda * self.W
+
+            S = np.diag(hypos * (1 - hypos))
+            # hessian of the cost function, returns np matrix of (self.P + 1) x (self.P + 1) size
+            hessian = np.dot(np.dot(X_transposed, S), X) + self.reg_lambda * np.identity(self.P + 1)
+
+            # log_info("grad is %s" % grad)
+            # log_info("hessian is %s" % hessian)
+            try:
+                self.update_weights(hessian, grad)
+            except np.linalg.linalg.LinAlgError:
+                log_warn("Singular hessian matrix, seems like big weights")
+                return self
+
+            cost = self.cost(Xw, Y)
             log_info("now weights are %s" % self.W)
-            log_info("now cost is %s" % new_cost)
+            log_info("now cost is %s" % cost)
+            i += 1
+
+            if (old_cost - cost) / cost < eps:
+                stable_cost_counter += 1
+            else:
+                stable_cost_counter = 0
+            if stable_cost_counter == 5 or i > 30:
+                break
 
         return self
 
     def predict(self, X):
-        assert (X.shape[1] == self.P)
-        # add x0 with ones for convenience
-        x0 = np.ones((X.shape[0], 1))
-        X = np.hstack((x0, X))
-        # for each row x_i, return 1 if prob(y_i == 1) > 0.5, else 0
-        return np.apply_along_axis(lambda x: 1 if self.hypothesis(x) > 0.5 else 0, 1, X)
+        hypos = self.predict_proba(X)
+        predict_vectorizer = np.vectorize(lambda prob: 1 if prob > 0.5 else 0)
+        return predict_vectorizer(hypos)
 
     def predict_proba(self, X):
         assert (X.shape[1] == self.P)
         # add x0 with ones for convenience
+        X = LogisticRegression.add_column_of_ones(X)
+        Xw = np.squeeze(np.asarray(np.dot(X, self.W)))
+        return self.sigmoid_vectorizer(Xw)
+
+    # add column of ones to matrix
+    @staticmethod
+    def add_column_of_ones(X):
         x0 = np.ones((X.shape[0], 1))
-        X = np.hstack((x0, X))
-        # for each row x_i, prob(y_i == 1)
-        return np.apply_along_axis(lambda x: self.hypothesis(x), 1, X)
+        return np.hstack((x0, X))
 
     # calculates sigmoid with hack allowing t << 0 argument
-    # equals to probability of y = 1 for X and current weights
-    def hypothesis(self, x):
-        t = np.dot(x, self.W)
+    # sigmoid(wx) equals to probability of y = 1 for X and current weights
+    @staticmethod
+    def sigmoid(t):
         if t > 0:
             e = np.exp(-t)
             assert np.isfinite(e)
@@ -124,89 +169,33 @@ class LogisticRegression:
             return e / (1 + e)
 
     # simplified log(sigmoid(wt)) with hack
-    def log_sigmoid(self, x):
-        t = np.dot(x, self.W)
+    @staticmethod
+    def log_sigmoid(t):
         if t > 0:
             return -np.log(1 + np.exp(-t))
         else:
             return t - np.log(1 + np.exp(t))
 
     # simplified log(1 - sigmoid(wt)) with hack
-    def log_one_minus_sigmoid(self, x):
-        t = np.dot(x, self.W)
+    @staticmethod
+    def log_one_minus_sigmoid(t):
         if t > 0:
             return -t + np.log(1 + np.exp(-t))
         else:
             return -np.log(1 + np.exp(t))
 
-    # # returns probability of y = 1 for X and current weights
-    # def hypothesis(self, x):
-    #     # log_info("x = %s, W = %s" % (x, self.W))
-    #     return LogisticRegression.sigmoid(np.dot(x, self.W))
-
-
     # cost function to be minimized
-    def cost(self, X, Y):
-        # numpy way of doing this?
-        s = np.double()
-        for i in range(self.N):
-            sample = X[i]
-            answer = Y[i]
-            it_val = 0
-            if answer == 1:
-                it_val = -self.log_sigmoid(sample)
-            elif answer == 0:
-                it_val = -self.log_one_minus_sigmoid(sample)
-            else:
-                raise ValueError("Answers must be 0 or 1")
-            # log_info("sample_prob = %s" % sample_prob)
-            s += it_val
-        # calculate regularization
-        e_w = 0.0
-        for w_i in self.W:
-            e_w += w_i * w_i
-        reg = self.reg_lambda / 2 * e_w
-        cost = s / self.N + reg
-        return cost
-
-    # gradient of the cost function, returns np array of self.P + 1 size
-    def grad(self, X, Y):
-        grad = np.zeros(self.P + 1)
-        for i in range(self.N):
-            sample = X[i]
-            answer = Y[i]
-            grad += (self.hypothesis(sample) - answer) * sample
-        reg = self.reg_lambda * self.W
-        grad /= self.N
-        grad += reg
-        return grad
-
-    # hessian of the cost function, returns np matrix of (self.P + 1) x (Self.P + 1) size
-    def hessian(self, X, Y):
-        hessian = np.zeros((self.P + 1) * (self.P + 1)).reshape(self.P + 1, self.P + 1)
-        for i in range(self.N):
-            sample = X[i]
-            answer = Y[i]
-            sample_prob = self.hypothesis(sample)
-            hessian += (sample_prob * (1 - sample_prob)) * sample.reshape(self.P + 1, 1) * sample
-        reg = self.reg_lambda * np.ones((self.P + 1, self.P + 1))
-        hessian /= self.N
-        hessian += reg
-        return hessian
+    def cost(self, Xw, Y):
+        log_sigmoids = self.log_sigmoids_vectorizer(Xw)
+        log_one_minus_sigmoids = self.log_one_minus_sigmoids_vectorizer(Xw)
+        regularization = self.reg_lambda / 2 * np.dot(self.W, self.W)
+        return - np.dot(Y, log_sigmoids) - np.dot((1 - Y), log_one_minus_sigmoids) + regularization
 
     # update vector of weights
-    def update_weights(self, X, Y):
+    def update_weights(self, hessian, grad):
         # TODO: simplify this
-        delta = np.dot(np.linalg.inv(self.hessian(X, Y)), self.grad(X, Y).reshape(self.P + 1, 1)).reshape(1, self.P + 1).flatten()
+        delta = np.squeeze(np.array(np.dot(np.linalg.inv(hessian), grad)))
         self.W -= delta
-        w0 = self.W[0]
-        # dirty hack to avoid big weights
-        # if abs(w0) > 3000:
-        #     log_info("now weights are %s, boundary is y = %sx + %s" %
-        #              (self.W, weights_to_kx_plus_b(self.W)[0], weights_to_kx_plus_b(self.W)[1]))
-        #     log_info("now cost is %s" % self.cost(X, Y))
-        #     log_warn("Weights are big: abs(w0) > %s, squashing them..." % w0)
-        #     self.W /= w0
 
 
 def iris_check(model):
@@ -285,7 +274,7 @@ def auroc(y_prob, y_true):
 # learn and measure score
 def score(X_train, Y_train, X_test, Y_test, reg_lambda=0.0):
     log_info("Starting scoring, X_train size is %s, Y_train size is %s, X_test size is %s, Y_test size is %s; "
-             "number of features is %s" % (X_train.shape[0], Y_train.size, X_test.shape[0], Y_test.size, X.shape[1]))
+             "number of features is %s" % (X_train.shape[0], Y_train.size, X_test.shape[0], Y_test.size, X_train.shape[1]))
     model = LogisticRegression(reg_lambda=reg_lambda)
     model.fit(X_train, Y_train)
     Y_prob = model.predict_proba(X_test)
@@ -293,7 +282,7 @@ def score(X_train, Y_train, X_test, Y_test, reg_lambda=0.0):
 
 
 # calculate cross validation score
-def cross_val_score(X, Y, n_folds=5, reg_lambda=0.0):
+def cross_val_score(X, Y, n_folds=3, reg_lambda=0.0):
     assert(X.shape[0] == Y.shape[0])
     kf = KFold(X.shape[0], n_folds=n_folds)
     scores = []
@@ -309,11 +298,15 @@ def cross_val_score(X, Y, n_folds=5, reg_lambda=0.0):
 
 def choose_best_reg_lambda(X, Y, C):
     best_c, best_cvs = C[0], cross_val_score(X, Y, reg_lambda=C[0])
+    res_dict = {C[0]: best_cvs}
     for c in C[1:]:
         cvs = cross_val_score(X, Y, reg_lambda=c)
+        res_dict[c] = cvs
         if cvs > best_cvs:
-            best_css = cvs
+            best_cvs = cvs
             best_c = c
+        log_info("cvs for lambda %s is %s" % (c, cvs))
+    log_info("Choosing lambda results: %s" % res_dict)
     log_info("Best c is %s with cross val score %s" % (best_c, best_cvs))
     return best_c
 
@@ -330,14 +323,12 @@ def fit_and_draw_roc(X, Y, C):
     Y_prob = model.predict_proba(X_test)
     roc_auc = auroc(Y_prob, Y_test)
     fpr, tpr, thresholds = sklearn.metrics.roc_curve(Y_test, Y_prob)
-    print thresholds
     plot_roc_curve(tpr, fpr, roc_auc)
+    return model
 
 
 def plot_roc_curve(tprs, fprs, roc_auc):
     plt.figure()
-    print tprs
-    print fprs
     plt.plot(fprs, tprs, label='ROC curve', linewidth=2)
     plt.plot([0, 1], [0, 1], 'k--')  # draw y = x
     plt.xlim([0.0, 1.0])
@@ -352,9 +343,10 @@ def plot_roc_curve(tprs, fprs, roc_auc):
 def evaluate_unknown(model, users_ex_ids):
     ix = np.in1d(users, users_ex_ids).reshape(users.shape)
     X = X_dataset[np.where(ix)]
-    X1 = X.tocsc()[:, features_counts > 125].toarray()
+    X1 = X.tocsc()[:, features_counts > features_counts_border].toarray()
     log_info("Resulting testing set after filtering: (%dx%d) feature matrix" %
              (X1.shape[0], X1.shape[1]))
+    # X1 = sklearn.preprocessing.normalize(X1)
     res = model.predict(X1)
     res_matr = np.hstack((users_ex_ids.reshape((users_ex_ids.size, 1)), res.reshape((res.size, 1))))
     np.savetxt("hw5_res.csv", res_matr, delimiter=',', header="uid,cat", comments="", fmt='%d')
@@ -382,13 +374,52 @@ if __name__ == "__main__":
     log_info("Resulting training set: (%dx%d) feature matrix, %d target vector" % (X.shape[0], X.shape[1], Y.shape[0]))
 
     features_counts = draw_log_hist(X)
-    X1 = X.tocsc()[:, features_counts > 125].toarray()
+    features_counts_border = 200
+    X1 = X.tocsc()[:, features_counts > features_counts_border].toarray()
     log_info("Resulting training set after filtering: (%dx%d) feature matrix, %d target vector" %
              (X1.shape[0], X1.shape[1], Y.shape[0]))
+    X1 = sklearn.preprocessing.normalize(X1)
 
-    fit_and_draw_roc(X1, Y, [0.0, 0.1, 0.01])
-    # print score(X1, Y, X1, Y, reg_lambda=0.0)
+    # other stuff
+    from sklearn.naive_bayes import MultinomialNB
+    from sklearn.linear_model import SGDClassifier
+    from sklearn.linear_model import PassiveAggressiveClassifier
+    from sklearn.linear_model import Perceptron
+    from sklearn.tree import DecisionTreeClassifier
+    from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+    from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
+    from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
+    from sklearn.svm import SVC
+    # clf = SVC(gamma=2, C=1) # 0.64
+    # clf = SVC(gamma=0.001, C=1.0) # 0.50
+    # clf = SVC(kernel="sigmoid", gamma=2, C=1.0) # 58
+    # clf =  SVC(kernel="linear", C=0.025, gamma=2) # 59
+    # clf =  SVC(kernel="poly", C=1.0, gamma=20) # 62
+    # print sklearn.cross_validation.cross_val_score(clf, X1, Y, cv=3).mean()
 
-    # model = LogisticRegression(0.0)
-    # model.fit(X1, Y)
-    # evaluate_unknown(model, df_users_ex["uid"].values )
+
+    # find best param on twitter data and draw roc
+    # print score(X1, Y, X1, Y, reg_lambda=10.0)
+    # cross_val_score(X1, Y, reg_lambda=10.0)
+    # best_c = choose_best_reg_lambda(X1, Y, [0.1, 1, 10.0, 25.0, 50.0, 75.0, 100.0])
+    fit_and_draw_roc(X1, Y, [1, 10.0, 25.0])
+
+    # evaluate on unknown data
+    model = LogisticRegression(10.0)
+    model.fit(X1, Y)
+    evaluate_unknown(model, df_users_ex["uid"].values )
+
+    # evaluate iris
+    # iris = datasets.load_iris()
+    # X = iris.data[:100, :2]  # we only take the first two features.
+    # Y = iris.target[:100]
+    # sh = sklearn.utils.shuffle(X, Y)
+    # X, Y = sh[0], sh[1]
+    # print score(X, Y, X, Y, reg_lambda=0.0)
+    # best_c = choose_best_reg_lambda(X, Y, [0, 0.01, 0.001])
+    # cross_val_score(X, Y, reg_lambda=0.01)
+
+    # visualize 2d iris, sklearn or ours
+    # sklearn_iris_check()
+    # model = LogisticRegression(reg_lambda=0.001)
+    # iris_check(model)
